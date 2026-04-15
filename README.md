@@ -62,6 +62,10 @@ BUILD.bat
 
 Or skip all of this — the Settings dialog in the app lets you add keys through the GUI.
 
+## Screenshots
+
+<img width="1934" height="1259" alt="image" src="https://github.com/user-attachments/assets/b561703b-0ca2-46da-aa99-08e98bb9d9b7" />
+
 ## How It Works
 
 ### Signal Collection
