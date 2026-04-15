@@ -1,0 +1,54 @@
+# ── Python ──
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+dist/
+build/
+*.egg
+*.whl
+
+# ── Virtual environments ──
+venv/
+.venv/
+env/
+
+# ── IDE ──
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ── Stock Oracle data (user-specific, generated at runtime) ──
+stock_oracle/data/
+stock_oracle/cache/
+stock_oracle/models/
+stock_oracle/signal_intelligence.json
+
+# ── API keys and secrets ──
+stock_oracle/.env
+.env
+*.env
+
+# ── Session / prediction data ──
+*.jsonl
+
+# ── Logs ──
+*.log
+stock_oracle.log
+
+# ── PyInstaller build output ──
+dist/
+build/
+*.spec
+installer_output/
+
+# ── OS files ──
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ── Misc ──
+*.zip
+*.bak
