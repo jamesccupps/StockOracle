@@ -31,7 +31,7 @@ A multi-signal stock prediction and monitoring system that combines 39 data coll
 ### Option 2: Manual Setup
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/StockOracle.git
+git clone https://github.com/jamesccupps/StockOracle.git
 cd StockOracle
 pip install -r stock_oracle/requirements.txt
 python -m stock_oracle
