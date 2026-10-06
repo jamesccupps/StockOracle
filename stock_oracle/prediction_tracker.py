@@ -66,6 +66,10 @@ class PredictionTracker:
         if prev_date == date_str:
             return  # Already recorded today
         self._recorded_today[ticker] = date_str
+        # Also check today's file, so a restart or a second process (GUI and
+        # terminal running together) doesn't record the same ticker twice.
+        if self._already_on_disk(ticker, date_str):
+            return
 
         record = {
             "ticker": ticker,
@@ -110,6 +114,27 @@ class PredictionTracker:
                 f.write(json.dumps(record, default=str) + "\n")
         except Exception as e:
             logger.error(f"Failed to record prediction for {ticker}: {e}")
+
+    @staticmethod
+    def _already_on_disk(ticker: str, date_str: str) -> bool:
+        pending_file = PREDICTIONS_DIR / f"pending_{date_str}.jsonl"
+        if not pending_file.exists():
+            return False
+        needle = f'"ticker": "{ticker}"'
+        try:
+            with open(pending_file, "r", encoding="utf-8") as f:
+                for line in f:
+                    # Cheap substring test first; confirm on the top-level key
+                    # (nested signal data can mention other tickers).
+                    if needle in line:
+                        try:
+                            if json.loads(line).get("ticker") == ticker:
+                                return True
+                        except Exception:
+                            continue
+        except Exception:
+            return False
+        return False
 
     def _extract_price(self, result: Dict) -> float:
         """Get the current price from the result signals."""

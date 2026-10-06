@@ -24,6 +24,10 @@ pyotp>=2.9.0
 # textblob>=0.17.1        # NLP
 # transformers>=4.35.0    # FinBERT
 
+# Terminal (python -m stock_oracle.terminal)
+fastapi>=0.110.0
+uvicorn[standard]>=0.29.0
+
 # Claude Advisor (optional — enables AI meta-analysis during monitoring)
 anthropic>=0.40.0
 
