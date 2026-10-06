@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#000000">
+  <title>Stock Oracle Terminal</title>
+  <link rel="stylesheet" href="/static/css/terminal.css">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%23000'/%3E%3Cpath d='M2 12 L6 7 L9 9 L14 3' stroke='%23ffa028' stroke-width='2' fill='none'/%3E%3C/svg%3E">
+  <script src="/static/vendor/lightweight-charts.standalone.production.js" defer></script>
+  <script type="module" src="/static/js/app.js"></script>
+</head>
+<body>
+  <header id="cmdbar">
+    <span id="brand">ORACLE<b> terminal</b></span>
+    <div id="cmdwrap">
+      <input id="cmd" autocomplete="off" spellcheck="false" autocapitalize="off"
+             aria-label="Command" placeholder="Ticker or function — NVDA BRIEF · ECO · ASK why is NVDA up? · HELP">
+      <ul id="suggest" role="listbox"></ul>
+    </div>
+    <button id="go" title="Run command (Enter)">GO</button>
+    <span id="clock"><span id="clock-t"></span><span class="dim">ET</span></span>
+  </header>
+  <nav id="tape" aria-label="Market tape"></nav>
+  <main id="grid" class="lay-4"></main>
+  <footer id="status">
+    <span><span id="st-dot" class="dot"></span><span id="st-stream">connecting…</span></span>
+    <span id="st-session"></span>
+    <span id="msg" role="status" aria-live="polite"></span>
+    <span id="st-keys" class="faint"></span>
+  </footer>
+</body>
+</html>

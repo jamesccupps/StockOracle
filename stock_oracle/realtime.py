@@ -186,18 +186,36 @@ class FinnhubRealtime:
         self._thread = None
         self._symbols: Set[str] = set()
         self._running = False
+        self._connected = False
+        self._send_lock = threading.Lock()
+
+    @property
+    def connected(self) -> bool:
+        return self._connected
+
+    def _send(self, payload: Dict):
+        """Send on the socket if it is open. Subscriptions made while the
+        socket is down are kept in self._symbols and replayed on connect."""
+        if not (self._ws and self._connected):
+            return
+        try:
+            with self._send_lock:
+                self._ws.send(json.dumps(payload))
+        except Exception as e:
+            logger.debug(f"Finnhub send failed (will resync on reconnect): {e}")
 
     def subscribe(self, symbols: List[str]):
-        self._symbols.update(s.upper() for s in symbols)
-        if self._ws and self._running:
-            for s in symbols:
-                self._ws.send(json.dumps({"type": "subscribe", "symbol": s.upper()}))
+        new = [s.upper() for s in symbols if s.upper() not in self._symbols]
+        self._symbols.update(new)
+        for s in new:
+            self._send({"type": "subscribe", "symbol": s})
 
     def unsubscribe(self, symbols: List[str]):
         for s in symbols:
-            self._symbols.discard(s.upper())
-            if self._ws and self._running:
-                self._ws.send(json.dumps({"type": "unsubscribe", "symbol": s.upper()}))
+            s = s.upper()
+            if s in self._symbols:
+                self._symbols.discard(s)
+                self._send({"type": "unsubscribe", "symbol": s})
 
     def start(self):
         if not HAS_WEBSOCKET:
@@ -205,16 +223,22 @@ class FinnhubRealtime:
             return
 
         self._running = True
-        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread = threading.Thread(target=self._run, daemon=True,
+                                        name="finnhub-ws")
         self._thread.start()
         logger.info(f"Finnhub real-time started for {len(self._symbols)} symbols")
 
     def stop(self):
         self._running = False
         if self._ws:
-            self._ws.close()
+            try:
+                self._ws.close()
+            except Exception:
+                pass
 
     def _run(self):
+        """Connect and reconnect with backoff until stop() is called.
+        (Loop instead of recursion so long sessions can't exhaust the stack.)"""
         def on_message(ws, message):
             try:
                 data = json.loads(message)
@@ -223,37 +247,52 @@ class FinnhubRealtime:
                         tick = TickData(
                             symbol=trade["s"],
                             price=float(trade["p"]),
-                            volume=int(trade["v"]),
+                            volume=int(trade.get("v") or 0),
                             timestamp=trade["t"] / 1000,
                             source="finnhub",
                         )
                         self.buffer.add_tick(tick)
+                elif data.get("type") == "error":
+                    logger.warning(f"Finnhub websocket: {data.get('msg')}")
             except Exception as e:
                 logger.error(f"Finnhub parse error: {e}")
 
         def on_open(ws):
-            for symbol in self._symbols:
-                ws.send(json.dumps({"type": "subscribe", "symbol": symbol}))
-            logger.info("Finnhub websocket connected")
+            self._connected = True
+            for symbol in list(self._symbols):
+                with self._send_lock:
+                    ws.send(json.dumps({"type": "subscribe", "symbol": symbol}))
+            logger.info(f"Finnhub websocket connected ({len(self._symbols)} symbols)")
 
         def on_error(ws, error):
             logger.error(f"Finnhub error: {error}")
 
         def on_close(ws, close_status_code, close_msg):
+            self._connected = False
             logger.warning("Finnhub websocket closed")
-            if self._running:
-                time.sleep(5)
-                self._run()  # Reconnect
 
-        url = f"{self.WS_URL}?token={self.api_key}"
-        self._ws = websocket.WebSocketApp(
-            url,
-            on_message=on_message,
-            on_open=on_open,
-            on_error=on_error,
-            on_close=on_close,
-        )
-        self._ws.run_forever()
+        import os
+        base = os.environ.get("FINNHUB_WS_URL", self.WS_URL)
+        backoff = 5
+        while self._running:
+            started = time.time()
+            self._ws = websocket.WebSocketApp(
+                f"{base}?token={self.api_key}",
+                on_message=on_message,
+                on_open=on_open,
+                on_error=on_error,
+                on_close=on_close,
+            )
+            try:
+                self._ws.run_forever(ping_interval=30, ping_timeout=10)
+            except Exception as e:
+                logger.error(f"Finnhub websocket crashed: {e}")
+            self._connected = False
+            if not self._running:
+                break
+            # Reset backoff after a connection that stayed up a while
+            backoff = 5 if time.time() - started > 60 else min(backoff * 2, 120)
+            time.sleep(backoff)
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -276,7 +315,8 @@ class AlpacaRealtime:
     # IEX feed (free) — use "wss://stream.data.alpaca.markets/v2/sip" for paid
     WS_URL = "wss://stream.data.alpaca.markets/v2/iex"
 
-    def __init__(self, key_id: str, secret: str, buffer: RealtimeBuffer, use_sip: bool = False):
+    def __init__(self, key_id: str, secret: str, buffer: RealtimeBuffer, use_sip: bool = False,
+                 channels: tuple = ("trades", "quotes")):
         self.key_id = key_id
         self.secret = secret
         self.buffer = buffer
@@ -284,16 +324,42 @@ class AlpacaRealtime:
         self._thread = None
         self._symbols: Set[str] = set()
         self._running = False
+        self._connected = False   # True once authenticated
+        self._send_lock = threading.Lock()
+        self._channels = tuple(channels)
         self._url = "wss://stream.data.alpaca.markets/v2/sip" if use_sip else self.WS_URL
 
+    @property
+    def connected(self) -> bool:
+        return self._connected
+
+    def _send(self, payload: Dict):
+        if not (self._ws and self._connected):
+            return
+        try:
+            with self._send_lock:
+                self._ws.send(json.dumps(payload))
+        except Exception as e:
+            logger.debug(f"Alpaca send failed (will resync on reconnect): {e}")
+
+    def _sub_payload(self, action: str, symbols: List[str]) -> Dict:
+        payload = {"action": action}
+        for ch in self._channels:
+            payload[ch] = list(symbols)
+        return payload
+
     def subscribe(self, symbols: List[str]):
-        self._symbols.update(s.upper() for s in symbols)
-        if self._ws and self._running:
-            self._ws.send(json.dumps({
-                "action": "subscribe",
-                "trades": list(self._symbols),
-                "quotes": list(self._symbols),
-            }))
+        new = [s.upper() for s in symbols if s.upper() not in self._symbols]
+        self._symbols.update(new)
+        if new:
+            self._send(self._sub_payload("subscribe", new))
+
+    def unsubscribe(self, symbols: List[str]):
+        gone = [s.upper() for s in symbols if s.upper() in self._symbols]
+        for s in gone:
+            self._symbols.discard(s)
+        if gone:
+            self._send(self._sub_payload("unsubscribe", gone))
 
     def start(self):
         if not HAS_WEBSOCKET:
@@ -301,20 +367,34 @@ class AlpacaRealtime:
             return
 
         self._running = True
-        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread = threading.Thread(target=self._run, daemon=True,
+                                        name="alpaca-ws")
         self._thread.start()
 
     def stop(self):
         self._running = False
         if self._ws:
-            self._ws.close()
+            try:
+                self._ws.close()
+            except Exception:
+                pass
 
     def _run(self):
         def on_message(ws, message):
             try:
                 msgs = json.loads(message)
                 for msg in msgs:
-                    if msg.get("T") == "t":  # Trade
+                    kind = msg.get("T")
+                    if kind == "success" and msg.get("msg") == "authenticated":
+                        self._connected = True
+                        if self._symbols:
+                            with self._send_lock:
+                                ws.send(json.dumps(
+                                    self._sub_payload("subscribe", list(self._symbols))))
+                        logger.info(f"Alpaca authenticated ({len(self._symbols)} symbols)")
+                    elif kind == "error":
+                        logger.warning(f"Alpaca websocket error {msg.get('code')}: {msg.get('msg')}")
+                    elif kind == "t":  # Trade
                         tick = TickData(
                             symbol=msg["S"],
                             price=float(msg["p"]),
@@ -325,7 +405,7 @@ class AlpacaRealtime:
                             source="alpaca",
                         )
                         self.buffer.add_tick(tick)
-                    elif msg.get("T") == "q":  # Quote
+                    elif kind == "q":  # Quote
                         tick = TickData(
                             symbol=msg["S"],
                             price=(float(msg["bp"]) + float(msg["ap"])) / 2,
@@ -339,36 +419,40 @@ class AlpacaRealtime:
                 logger.error(f"Alpaca parse error: {e}")
 
         def on_open(ws):
-            # Authenticate
-            ws.send(json.dumps({
-                "action": "auth",
-                "key": self.key_id,
-                "secret": self.secret,
-            }))
-            # Subscribe
-            ws.send(json.dumps({
-                "action": "subscribe",
-                "trades": list(self._symbols),
-                "quotes": list(self._symbols),
-            }))
-            logger.info("Alpaca websocket connected")
+            # Authenticate; subscriptions are sent once the server confirms auth
+            with self._send_lock:
+                ws.send(json.dumps({
+                    "action": "auth",
+                    "key": self.key_id,
+                    "secret": self.secret,
+                }))
+            logger.info("Alpaca websocket connected, authenticating")
 
         def on_error(ws, error):
             logger.error(f"Alpaca error: {error}")
 
         def on_close(ws, *args):
-            if self._running:
-                time.sleep(5)
-                self._run()
+            self._connected = False
 
-        self._ws = websocket.WebSocketApp(
-            self._url,
-            on_message=on_message,
-            on_open=on_open,
-            on_error=on_error,
-            on_close=on_close,
-        )
-        self._ws.run_forever()
+        backoff = 5
+        while self._running:
+            started = time.time()
+            self._ws = websocket.WebSocketApp(
+                self._url,
+                on_message=on_message,
+                on_open=on_open,
+                on_error=on_error,
+                on_close=on_close,
+            )
+            try:
+                self._ws.run_forever(ping_interval=30, ping_timeout=10)
+            except Exception as e:
+                logger.error(f"Alpaca websocket crashed: {e}")
+            self._connected = False
+            if not self._running:
+                break
+            backoff = 5 if time.time() - started > 60 else min(backoff * 2, 120)
+            time.sleep(backoff)
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

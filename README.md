@@ -18,6 +18,7 @@ A multi-signal stock prediction and monitoring system that combines 39 data coll
 - **Claude AI Advisor** — Optional Anthropic API integration for hourly weight adjustments, pattern detection, and session reviews
 - **News Feed** — Per-stock and watchlist-wide news with clickable article links
 - **Built-in Help Guide** — 7-tab help system explaining every feature
+- **Oracle Terminal** — a Bloomberg-style browser terminal: SEC filings, insider trades, holders, estimate revisions, short data, options, FRED macro, the yield curve and Oracle's signals, all a typed command away (see below)
 
 ## Quick Start
 
@@ -44,6 +45,43 @@ python -m stock_oracle
 BUILD.bat
 # Output: dist/StockOracle/StockOracle.exe (no Python needed to run)
 ```
+
+## Oracle Terminal
+
+A keyboard-driven market terminal in your browser, built on the same engine, data folder and keys as the desktop app.
+
+```bash
+python -m stock_oracle.terminal          # or double-click TERMINAL.bat  ->  http://127.0.0.1:8765
+python -m stock_oracle.terminal --lan    # also reachable from your phone over Tailscale/LAN (token-protected)
+python -m stock_oracle.terminal.selftest # checks every data source with your keys
+```
+
+Type a ticker to load it into every linked panel, then a function code. `NVDA BRIEF`, `NVDA CF`, `GP 1Y`, `ECO`, `ASK why is LUNR bearish?`. `HELP` lists everything; typing anywhere goes to the command line.
+
+| Function | What it shows | Source |
+|---|---|---|
+| `BRIEF` | Everything below on one page, plus Oracle's verdict | all |
+| `GP` `HP` | Candlestick chart with MAs (live intraday bars), price table | Yahoo + live stream |
+| `DES` `FA` | Profile, valuation, annual/quarterly statements | Yahoo |
+| `EEO` | Consensus EPS/revenue and 7/30/90-day estimate revisions | Yahoo |
+| `ANR` `EE` | Ratings, targets, upgrades/downgrades; earnings history and next date | Yahoo, Finnhub |
+| `INS` `HDS` | Insider buys/sales (Form 4), institutional and fund holders (13F) | Yahoo |
+| `CF` | SEC filings: 8-K items, 10-Q/K, Form 4/144, 13D/G, S-3/424B offerings | SEC EDGAR |
+| `SI` | Short interest, days to cover, daily off-exchange short-volume ratio | Yahoo, FINRA |
+| `DVD` `HOLD` | Dividend history and growth; ETF holdings, sectors, expense ratio | Yahoo |
+| `OMON` `RV` `N` | Option chain with put/call ratios; peer valuation table; company news | Yahoo, Finnhub |
+| `W` | Watchlist with live quotes and Oracle verdicts (shares the GUI's watchlist) | stream + Oracle |
+| `ORC` `REG` `BRK` `ACC` | Oracle analysis (run on demand), regime, breakout scanner, accuracy | Stock Oracle |
+| `ECO` `GC` | 24 FRED series (inflation, jobs, GDP, credit spreads, stress); Treasury curve vs 1m/1y | FRED |
+| `MOST` `EVTS` `TOP` | Movers and screens; watchlist earnings calendar; market news | Yahoo, Finnhub |
+| `WEI` `SECT` `GOVT` `FX` `CMDTY` `CRYPTO` | Cross-asset monitors with sparklines | Yahoo |
+| `ASK` | Claude, with a live briefing on the focused ticker and the macro backdrop attached | Anthropic |
+
+**Live prices.** With a Finnhub key the terminal streams trades over Finnhub's websocket (free tier: 50 symbols); with Alpaca keys and no Finnhub key it uses Alpaca's IEX feed (30 symbols). Without either, quotes refresh from Yahoo every 15 seconds. Indices, futures and FX always come from the Yahoo poll.
+
+**Oracle integration.** `ORC` and `RUN` call the same `StockOracle.analyze()` as the GUI (predictions are recorded and verified the same way). The watchlist shows the newest verdict from either the terminal or the GUI's current monitoring session, so you can monitor in the GUI and read the results in the terminal. `ASK` uses the GUI's Claude settings and monthly spending cap.
+
+**Settings** (optional, in `stock_oracle/.env`): `SEC_USER_AGENT` (SEC wants a real contact email), `TERMINAL_STREAM=auto|finnhub|alpaca|off`, `TERMINAL_FINNHUB_RPM` (default 30, leaving headroom for the GUI on the same key), `TERMINAL_POLL_SECONDS`, `TERMINAL_PREPOST=1` for extended-hours bars, `TERMINAL_TOKEN`, `TERMINAL_PORT`.
 
 ## Configuration
 
@@ -90,6 +128,7 @@ StockOracle/
 ├── INSTALL.bat                    # One-click installer
 ├── START.bat                      # Quick launcher
 ├── BUILD.bat                      # PyInstaller build script
+├── TERMINAL.bat                   # Oracle Terminal launcher
 ├── .env.example                   # API key template
 ├── stock_oracle/
 │   ├── __main__.py                # Entry point
@@ -104,6 +143,13 @@ StockOracle/
 │   ├── session_tracker.py         # Intraday monitoring & verification
 │   ├── prediction_tracker.py      # 5-day prediction recording & scoring
 │   ├── narrative.py               # Human-readable prediction summaries
+│   ├── terminal/                  # Oracle Terminal (FastAPI + browser front end)
+│   │   ├── server.py              # REST endpoints + /ws live quotes
+│   │   ├── providers/             # Yahoo, Finnhub, SEC EDGAR, FINRA, FRED
+│   │   ├── quotes.py              # Live quote hub (websocket stream + polling)
+│   │   ├── oracle_bridge.py       # Oracle analysis, accuracy, regime, breakouts, Claude
+│   │   ├── dossier.py             # BRIEF pages and ASK context
+│   │   └── static/                # Front end (no build step)
 │   ├── ml/
 │   │   └── pipeline.py            # ML ensemble (RF, GBM, NN)
 │   ├── collectors/
