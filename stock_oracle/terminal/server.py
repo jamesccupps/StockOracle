@@ -26,6 +26,7 @@ from stock_oracle.terminal import __version__, dossier, market, settings, symbol
 from stock_oracle.terminal.oracle_bridge import OracleBridge
 from stock_oracle.terminal.providers import DataRouter, ProviderError
 from stock_oracle.terminal.quotes import Client, QuoteHub
+from stock_oracle.utils.redact import redact
 
 logger = logging.getLogger("stock_oracle.terminal")
 
@@ -104,8 +105,8 @@ def create_app(token: Optional[str] = None,
         except (HTTPException, ProviderError, ValueError):
             raise
         except Exception as e:
-            logger.warning(f"terminal: upstream error: {e!r}")
-            raise HTTPException(502, f"Data source error: {e}")
+            logger.warning(f"terminal: upstream error: {redact(repr(e))}")
+            raise HTTPException(502, f"Data source error: {redact(e)}")
 
     # ── front end ────────────────────────────────────────────
 
