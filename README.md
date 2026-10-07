@@ -1,24 +1,24 @@
 # Stock Oracle
 
-A multi-signal stock prediction and monitoring system that combines 39 data collectors, machine learning, and optional AI analysis to generate real-time predictions.
+A multi-signal stock prediction and monitoring system for Windows: 39 data collectors, an ML ensemble and an optional Claude advisor behind a tkinter desktop app, plus a Bloomberg-style browser terminal for research.
 
+[![tests](https://github.com/jamesccupps/StockOracle/actions/workflows/tests.yml/badge.svg)](https://github.com/jamesccupps/StockOracle/actions/workflows/tests.yml)
 ![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)
 ![License: MIT](https://img.shields.io/badge/license-MIT-green)
 ![Platform: Windows](https://img.shields.io/badge/platform-Windows-lightgrey)
 
 ## Features
 
-- **39 Signal Collectors** — Technical analysis, news sentiment, SEC filings, Reddit/HackerNews sentiment, analyst ratings, insider trades, macro indicators, and more
+- **Oracle Terminal** — a Bloomberg-style browser terminal: SEC filings, insider trades, holders, estimate revisions, short data, options, FRED macro, the yield curve and Oracle's signals, all a typed command away (see below)
+- **39 Signal Collectors** (36 weighted, 3 disabled) — Technical analysis, news sentiment, SEC filings, Reddit/HackerNews sentiment, analyst ratings, insider trades, macro indicators, and more
 - **Real-Time Monitoring** — Continuous scanning with live prices, intraday trend tracking, and automatic prediction verification
 - **Machine Learning** — Ensemble ML (Random Forest, Gradient Boost, Neural Net) that trains on verified predictions and improves over time
 - **Signal Intelligence** — Automatically detects and suppresses stale/constant signals, adapts conviction thresholds per ticker volatility, and adjusts for market hours vs after-hours
 - **Market Regime Detection** — Identifies broad market selloffs/rallies from SPY + sector breadth and shifts all predictions accordingly
 - **Breakout Scanner** — Scores stocks 0-100 on breakout probability using 8 technical patterns with estimated timeframes
-- **Real-Time News Feed** — Finnhub-powered news aggregation with recency weighting (breaking news counts 3x)
-- **Claude AI Advisor** — Optional Anthropic API integration for hourly weight adjustments, pattern detection, and session reviews
-- **News Feed** — Per-stock and watchlist-wide news with clickable article links
-- **Built-in Help Guide** — 7-tab help system explaining every feature
-- **Oracle Terminal** — a Bloomberg-style browser terminal: SEC filings, insider trades, holders, estimate revisions, short data, options, FRED macro, the yield curve and Oracle's signals, all a typed command away (see below)
+- **News Feed** — Finnhub-powered per-stock and watchlist-wide news with recency weighting (breaking news counts 3x) and clickable article links
+- **Claude AI Advisor** — Optional Anthropic API integration for periodic weight adjustments, pattern detection and session reviews, under a hard monthly spending cap shared by the GUI and the terminal
+- **Built-in Help Guide** — 8-section help system explaining every feature
 
 ## Quick Start
 
@@ -46,9 +46,13 @@ BUILD.bat
 # Output: dist/StockOracle/StockOracle.exe (no Python needed to run)
 ```
 
+The build bundles source files only. Your `stock_oracle/.env`, `data/`, `cache/` and `models/` stay out, and the script refuses to finish if any of them turn up in `dist`. A frozen build keeps its data in `%APPDATA%\StockOracle`.
+
 ## Oracle Terminal
 
 A keyboard-driven market terminal in your browser, built on the same engine, data folder and keys as the desktop app.
+
+![Oracle Terminal: watchlist, BRIEF page, price graph and Oracle panel](docs/terminal.png)
 
 ```bash
 python -m stock_oracle.terminal          # or double-click TERMINAL.bat  ->  opens http://127.0.0.1:8765/?token=...
@@ -93,16 +97,26 @@ Type a ticker to load it into every linked panel, then a function code. `NVDA BR
 | Key | Source | Cost | What it enables |
 |-----|--------|------|-----------------|
 | Finnhub | [finnhub.io](https://finnhub.io/register) | Free | Real-time prices, company news |
-| Anthropic | [console.anthropic.com](https://console.anthropic.com) | ~$5/mo | Claude AI advisor |
+| Alpaca | [alpaca.markets](https://alpaca.markets) | Free | Live quote stream in the terminal (IEX feed) when there's no Finnhub key |
+| Anthropic | [console.anthropic.com](https://console.anthropic.com) | ~$5/mo | Claude AI advisor and the terminal's `ASK` (default model Haiku 4.5, cap set by `CLAUDE_MONTHLY_CAP`) |
 | FRED | [fred.stlouisfed.org](https://fred.stlouisfed.org) | Free | Economic indicators |
 | News API | [newsapi.org](https://newsapi.org) | Free | News sentiment |
 | Reddit | [reddit.com/prefs/apps](https://www.reddit.com/prefs/apps) | Free | Social sentiment |
 | SEC EDGAR | Just your email | Free | Filing analysis |
 | GitHub | [github.com/settings/tokens](https://github.com/settings/tokens) | Free | Avoids rate limits |
 
-Or skip all of this — the Settings dialog in the app lets you add keys through the GUI.
+Or skip all of this — the Settings dialog in the app lets you add keys through the GUI. Saving there keeps any other keys already in `.env`, such as the `TERMINAL_*` options.
+
+## Security notes
+
+- Keys live in plain text in `stock_oracle/.env`, which is gitignored and excluded from builds. Treat that file like a password.
+- Broker integration is read-only. `brokers.py` can stream quotes and read portfolios, but has no code path that places, changes or cancels an order, and a test enforces that.
+- The terminal requires an access token even on localhost. Use `--lan` over Tailscale or another encrypted link; it serves plain HTTP.
+- Finnhub REST calls send the key in a header rather than the URL (only the websocket, which requires it, puts it in the URL), and query-string keys such as FRED's are scrubbed from logged request errors.
 
 ## Screenshots
+
+Desktop app:
 
 <img width="1934" height="1259" alt="image" src="https://github.com/user-attachments/assets/b561703b-0ca2-46da-aa99-08e98bb9d9b7" />
 
@@ -119,6 +133,13 @@ Before predicting individual stocks, the system checks SPY, sector ETFs, and mar
 
 ### Prediction Verification
 Every prediction is recorded and verified against actual price movement (intraday: 3 scans later, 5-day: after horizon passes). Verified outcomes feed back into ML training, creating a learning loop.
+
+### Accuracy caveats
+Read the accuracy numbers with these in mind:
+- Cross-validation runs on distinct samples only and logs a majority-class baseline next to each model; a score that doesn't beat the baseline means nothing.
+- Historical training rows are still ordered by ticker rather than date, so the time-series split is optimistic.
+- Intraday (±0.3%) and 5-day (±2%) outcomes share the same three classes.
+- Monitoring isn't limited to market hours. While the market is closed prices barely move, which flatters NEUTRAL calls.
 
 ### Breakout Scanner
 Scores stocks on 8 technical breakout patterns (Bollinger squeeze, volume accumulation, 52-week high proximity, RSI momentum, MACD crossover, MA alignment, range compression, relative strength) with estimated timeframes.
@@ -141,7 +162,8 @@ StockOracle/
 │   ├── market_regime.py           # Broad market selloff/rally detection
 │   ├── breakout_detector.py       # Breakout probability scanner
 │   ├── news_feed.py               # News aggregation & display
-│   ├── claude_advisor.py          # Anthropic Claude AI integration
+│   ├── claude_advisor.py          # Anthropic Claude AI integration + shared spend cap
+│   ├── brokers.py                 # Webull/Robinhood connectors (read-only)
 │   ├── session_tracker.py         # Intraday monitoring & verification
 │   ├── prediction_tracker.py      # 5-day prediction recording & scoring
 │   ├── narrative.py               # Human-readable prediction summaries
@@ -166,10 +188,16 @@ StockOracle/
 │   │   ├── new_indicators.py      # Fear/greed, momentum, insider ratio
 │   │   ├── cross_stock.py         # Peer correlation & earnings contagion
 │   │   └── ...
+│   ├── .env                       # Your keys/settings, written by the Settings dialog (gitignored)
 │   └── data/                      # Generated at runtime (gitignored)
 │       ├── predictions/           # Pending & verified predictions
 │       ├── sessions/              # Monitoring session data
-│       └── settings.json          # GUI-saved settings
+│       ├── gui_watchlist.json     # Watchlist shared by the GUI and the terminal
+│       ├── claude_usage.json      # Monthly Claude spend
+│       └── terminal_token.txt     # Terminal access token
+├── tests/                         # pytest suite
+├── docs/                          # README images
+└── .github/workflows/tests.yml    # CI: Windows, Python 3.11-3.13
 ```
 
 ## Watchlist
