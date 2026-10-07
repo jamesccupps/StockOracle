@@ -93,6 +93,12 @@ export const GP = {
       if (t === last.time) {
         last.high = Math.max(last.high, q.p); last.low = Math.min(last.low, q.p); last.close = q.p;
       } else {
+        // New bars only in the regular session, and only on a price change.
+        // Outside it q.p is the regular close (extended trades land in q.xp),
+        // so refreshes after hours or on weekends drew flat bars stamped with
+        // the wall clock.
+        const sess = c.store.session;
+        if ((sess && sess !== 'regular') || q.p === last.close) return;
         last = { time: t, open: last.close, high: Math.max(last.close, q.p), low: Math.min(last.close, q.p), close: q.p, volume: 0 };
         d.candles.push(last);
         byTime.set(t, last);
