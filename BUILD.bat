@@ -48,6 +48,20 @@ if not exist "stock_oracle\icon.ico" (
     %PYTHON_CMD% -c "from PIL import Image, ImageDraw; img=Image.new('RGBA',(256,256),(0,0,0,0)); d=ImageDraw.Draw(img); d.ellipse([20,20,236,236],fill='#1a1f2e',outline='#00cc66',width=12); d.text((80,85),'SO',fill='#00cc66'); img.save('stock_oracle/icon.ico',format='ICO',sizes=[(256,256),(128,128),(64,64),(48,48),(32,32),(16,16)])" 2>nul
 )
 
+REM ── Stage a clean copy of the package ──
+REM The working folder holds .env (API keys, broker logins), data\, cache\ and
+REM models\. Bundling it as-is ships all of that to whoever gets the zip, so
+REM copy only source/static file types and skip the runtime folders.
+echo [2.7/4] Staging clean package (no .env, data, cache, models)...
+if exist "build\stage" rmdir /s /q "build\stage"
+robocopy "stock_oracle" "build\stage\stock_oracle" *.py *.html *.css *.js *.txt *.ico /S /NFL /NDL /NJH /NJS /NP ^
+    /XD "%CD%\stock_oracle\data" "%CD%\stock_oracle\cache" "%CD%\stock_oracle\models" __pycache__ >nul
+if %ERRORLEVEL% GEQ 8 (
+    echo ERROR: staging copy failed.
+    pause
+    exit /b 1
+)
+
 REM ── Run PyInstaller ──
 echo [3/4] Building standalone app (this takes 2-5 minutes)...
 %PYTHON_CMD% -m PyInstaller ^
@@ -55,7 +69,7 @@ echo [3/4] Building standalone app (this takes 2-5 minutes)...
     --windowed ^
     --noconfirm ^
     --clean ^
-    --add-data "stock_oracle;stock_oracle" ^
+    --add-data "build\stage\stock_oracle;stock_oracle" ^
     --hidden-import "stock_oracle" ^
     --hidden-import "stock_oracle.gui" ^
     --hidden-import "stock_oracle.oracle" ^
@@ -112,6 +126,23 @@ echo [3/4] Building standalone app (this takes 2-5 minutes)...
 if %ERRORLEVEL% NEQ 0 (
     echo.
     echo BUILD FAILED! Check errors above.
+    pause
+    exit /b 1
+)
+
+REM ── Refuse to finish if secrets or user data made it into the bundle ──
+REM (One dir call with every pattern: wildcards inside a plain FOR list are
+REM  globbed against the current folder and silently vanish when unmatched.)
+set LEAKED=
+set D=dist\StockOracle
+for /f "delims=" %%F in ('dir /s /b /a-d "%D%\.env" "%D%\*.env" "%D%\*.jsonl" "%D%\*.pkl" "%D%\gui_watchlist.json" "%D%\claude_usage.json" "%D%\signal_intelligence.json" "%D%\settings.json" 2^>nul') do (
+    echo   LEAK: %%F
+    set LEAKED=1
+)
+if defined LEAKED (
+    echo.
+    echo BUILD REJECTED: the files above must not ship. Deleting dist\StockOracle.
+    rmdir /s /q "dist\StockOracle"
     pause
     exit /b 1
 )
