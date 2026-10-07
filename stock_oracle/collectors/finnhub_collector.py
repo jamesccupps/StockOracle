@@ -295,8 +295,7 @@ class FinnhubCollector(BaseCollector):
         """Get real-time quote."""
         resp = self._request(self.QUOTE_URL, params={
             "symbol": ticker.upper(),
-            "token": api_key,
-        })
+        }, headers={"X-Finnhub-Token": api_key})
         if resp and resp.status_code == 200:
             try:
                 data = resp.json()
@@ -313,8 +312,7 @@ class FinnhubCollector(BaseCollector):
         """
         resp = self._request(self.RECOMMENDATION_URL, params={
             "symbol": ticker.upper(),
-            "token": api_key,
-        })
+        }, headers={"X-Finnhub-Token": api_key})
         if resp and resp.status_code == 200:
             try:
                 data = resp.json()
@@ -345,8 +343,7 @@ class FinnhubCollector(BaseCollector):
         """
         resp = self._request(self.INSIDER_URL, params={
             "symbol": ticker.upper(),
-            "token": api_key,
-        })
+        }, headers={"X-Finnhub-Token": api_key})
         if resp and resp.status_code == 200:
             try:
                 data = resp.json()

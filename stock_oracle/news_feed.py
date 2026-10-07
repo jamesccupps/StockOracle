@@ -17,6 +17,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
 
+from stock_oracle.utils.redact import redact
+
 logger = logging.getLogger("stock_oracle")
 
 CACHE_TTL = 600  # Cache news for 10 minutes
@@ -66,8 +68,7 @@ class NewsFeed:
                 "symbol": ticker.upper(),
                 "from": from_date,
                 "to": today,
-                "token": self.api_key,
-            }, timeout=10)
+            }, headers={"X-Finnhub-Token": self.api_key}, timeout=10)
 
             if resp.status_code != 200:
                 logger.debug(f"News fetch failed for {ticker}: {resp.status_code}")
@@ -100,7 +101,7 @@ class NewsFeed:
             return articles[:max_articles]
 
         except Exception as e:
-            logger.debug(f"News fetch error for {ticker}: {e}")
+            logger.debug(f"News fetch error for {ticker}: {redact(e)}")
             return []
 
     def get_market_news(self, max_articles: int = 20) -> List[Dict]:
@@ -115,8 +116,7 @@ class NewsFeed:
         try:
             resp = requests.get(self.MARKET_NEWS_URL, params={
                 "category": "general",
-                "token": self.api_key,
-            }, timeout=10)
+            }, headers={"X-Finnhub-Token": self.api_key}, timeout=10)
 
             if resp.status_code != 200:
                 return []
@@ -144,7 +144,7 @@ class NewsFeed:
             return articles[:max_articles]
 
         except Exception as e:
-            logger.debug(f"Market news fetch error: {e}")
+            logger.debug(f"Market news fetch error: {redact(e)}")
             return []
 
     def get_watchlist_news(self, tickers: List[str], days: int = 2,

@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 from stock_oracle.config import CACHE_DIR, CACHE_TTL_HOURS, REQUEST_DELAY, MAX_RETRIES
+from stock_oracle.utils.redact import redact
 
 logger = logging.getLogger("stock_oracle")
 
@@ -222,9 +223,9 @@ class BaseCollector(ABC):
                     cooldown = min(600 * (count // 2), 3600)
                     BaseCollector._host_until[host] = time.time() + cooldown
                     if count <= 3:
-                        logger.warning(f"{self.name}: host {host} disabled for {cooldown//60}min ({e})")
+                        logger.warning(f"{self.name}: host {host} disabled for {cooldown//60}min ({redact(e)})")
                 else:
-                    logger.error(f"{self.name}: Request error: {e}")
+                    logger.error(f"{self.name}: Request error: {redact(e)}")
                 time.sleep(1)
 
         return None

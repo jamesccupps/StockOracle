@@ -72,7 +72,13 @@ def _get(path: str, params: Dict, wait: float = 2.0):
         raise FinnhubError("no Finnhub key")
     if not _bucket.take(wait):
         raise RateLimited("terminal Finnhub budget exhausted")
-    resp = _session.get(f"{BASE_URL}{path}", params={**params, "token": key}, timeout=10)
+    try:
+        resp = _session.get(f"{BASE_URL}{path}", params=params,
+                            headers={"X-Finnhub-Token": key}, timeout=10)
+    except requests.RequestException as e:
+        # Must be a FinnhubError so the router falls back to Yahoo, and must
+        # not carry str(e): requests puts the request URL in it.
+        raise FinnhubError(f"Finnhub unreachable ({type(e).__name__})") from None
     if resp.status_code == 429:
         raise RateLimited("Finnhub returned 429")
     if resp.status_code in (401, 403):
@@ -80,7 +86,10 @@ def _get(path: str, params: Dict, wait: float = 2.0):
                            "check the key, or this endpoint needs a paid plan")
     if resp.status_code != 200:
         raise FinnhubError(f"Finnhub HTTP {resp.status_code}")
-    return resp.json()
+    try:
+        return resp.json()
+    except ValueError:
+        raise FinnhubError("Finnhub returned a non-JSON response") from None
 
 
 def _fsym(sym: str) -> str:

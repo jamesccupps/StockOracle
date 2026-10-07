@@ -201,8 +201,7 @@ class RealtimeNewsCollector(BaseCollector):
             "symbol": ticker.upper(),
             "from": from_date,
             "to": today,
-            "token": api_key,
-        })
+        }, headers={"X-Finnhub-Token": api_key})
 
         if resp and resp.status_code == 200:
             try:
