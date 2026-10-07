@@ -85,6 +85,10 @@ def create_app(token: Optional[str] = None,
             return JSONResponse({"detail": "Missing or wrong terminal token. Open the URL printed "
                                            "in the console (it ends with ?token=...)."}, 401)
         response = await call_next(request)
+        if request.url.path.startswith("/static/"):
+            # Revalidate (ETag -> 304) instead of heuristic caching, which kept
+            # browsers on old JS for a fraction of the file's age after a pull
+            response.headers["Cache-Control"] = "no-cache"
         if token and request.query_params.get("token"):
             response.set_cookie(COOKIE, token, httponly=True, samesite="strict", max_age=90 * 86400)
         return response
