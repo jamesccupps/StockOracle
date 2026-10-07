@@ -1,10 +1,13 @@
 # Stock Oracle — Dependencies
+# Upper bounds stop the next major release of a dependency from arriving
+# untested. CI (.github/workflows/tests.yml) runs the suite on 3.11-3.13
+# and logs the resolved versions (pip freeze) for exact pinning.
 # Core
-requests>=2.31.0
-numpy>=1.24.0
-yfinance>=0.2.31
-scikit-learn>=1.3.0
-websocket-client>=1.7.0
+requests>=2.31.0,<3
+numpy>=1.24.0,<3
+yfinance>=0.2.31,<2
+scikit-learn>=1.3.0,<2
+websocket-client>=1.7.0,<2
 
 # Webull Official API (real-time MQTT)
 # pip install webull-sdk
@@ -23,12 +26,12 @@ websocket-client>=1.7.0
 # transformers>=4.35.0    # FinBERT
 
 # Terminal (python -m stock_oracle.terminal)
-fastapi>=0.110.0
-uvicorn[standard]>=0.29.0
+fastapi>=0.110.0,<1
+uvicorn[standard]>=0.29.0,<1
 
 # Claude Advisor (optional — enables AI meta-analysis during monitoring)
-anthropic>=0.40.0
+anthropic>=0.40.0,<2
 
 # System tray (optional — minimize to tray instead of taskbar)
-pystray>=0.19.0
-Pillow>=10.0.0
+pystray>=0.19.0,<1
+Pillow>=10.0.0,<13
