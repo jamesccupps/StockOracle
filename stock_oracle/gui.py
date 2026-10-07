@@ -3477,16 +3477,6 @@ class StockOracleGUI:
         add_field("POLYGON_API_KEY", "Polygon.io API Key",
                    "Free tier = delayed, paid = real-time")
 
-        add_section("Broker APIs")
-
-        add_field("WEBULL_APP_KEY", "Webull App Key",
-                   "Apply at Webull website > Account > API Management")
-        add_field("WEBULL_APP_SECRET", "Webull App Secret", show="*")
-        add_field("RH_EMAIL", "Robinhood Email")
-        add_field("RH_PASSWORD", "Robinhood Password", show="*")
-        add_field("RH_TOTP_SECRET", "Robinhood 2FA Secret",
-                   "TOTP secret from authenticator app setup", show="*")
-
         add_section("Free Data APIs (recommended)")
 
         add_field("FRED_API_KEY", "FRED API Key",
@@ -3610,8 +3600,7 @@ class StockOracleGUI:
             lines = []
             for key, var in entries.items():
                 val = var.get().strip()
-                if key in ("RH_PASSWORD", "WEBULL_APP_SECRET", "ALPACA_SECRET",
-                           "REDDIT_CLIENT_SECRET", "RH_TOTP_SECRET", "GITHUB_TOKEN"):
+                if key in ("ALPACA_SECRET", "REDDIT_CLIENT_SECRET", "GITHUB_TOKEN"):
                     status = "Set" if val else "Not set"
                 else:
                     status = val[:20] + "..." if len(val) > 20 else val if val else "Not set"
@@ -3642,8 +3631,7 @@ class StockOracleGUI:
         # Also check os.environ as fallback
         for key in [
             "FINNHUB_API_KEY", "ALPACA_KEY_ID", "ALPACA_SECRET",
-            "POLYGON_API_KEY", "WEBULL_APP_KEY", "WEBULL_APP_SECRET",
-            "RH_EMAIL", "RH_PASSWORD", "RH_TOTP_SECRET",
+            "POLYGON_API_KEY",
             "FRED_API_KEY", "NEWS_API_KEY", "SEC_USER_AGENT",
             "REDDIT_CLIENT_ID", "REDDIT_CLIENT_SECRET",
             "GITHUB_TOKEN",
@@ -3748,7 +3736,7 @@ class StockOracleGUI:
         # Count configured APIs
         api_count = sum(1 for k in [
             "FINNHUB_API_KEY", "ALPACA_KEY_ID", "POLYGON_API_KEY",
-            "WEBULL_APP_KEY", "FRED_API_KEY", "NEWS_API_KEY",
+            "FRED_API_KEY", "NEWS_API_KEY",
             "REDDIT_CLIENT_ID",
         ] if settings.get(k))
         self._log(f"Applied {api_count} API keys + settings")

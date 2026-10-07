@@ -15,9 +15,9 @@ websocket-client>=1.7.0
 # webullsdkmdata
 # webullsdktrade
 
-# Robinhood (unofficial)
-robin-stocks>=2.1.0
-pyotp>=2.9.0
+# Robinhood (unofficial, read-only connector in brokers.py; nothing imports it)
+# robin-stocks>=2.1.0
+# pyotp>=2.9.0
 
 # Optional
 # ib_insync>=0.9.86       # Interactive Brokers
