@@ -3597,13 +3597,18 @@ class StockOracleGUI:
 
         def show_status():
             """Show which APIs are configured."""
+            # Allowlist what may be echoed; every other field is credential
+            # material and only reported as Set/Not set.
+            shown = {"SEC_USER_AGENT", "OLLAMA_URL", "OLLAMA_MODEL", "PREDICTION_HORIZON_DAYS",
+                     "MONITOR_INTERVAL", "BACKTEST_STOP_LOSS", "BACKTEST_TAKE_PROFIT",
+                     "CLAUDE_MONTHLY_CAP", "CLAUDE_MODEL", "AUTO_MONITOR"}
             lines = []
             for key, var in entries.items():
                 val = var.get().strip()
-                if key in ("ALPACA_SECRET", "REDDIT_CLIENT_SECRET", "GITHUB_TOKEN"):
+                if key not in shown:
                     status = "Set" if val else "Not set"
                 else:
-                    status = val[:20] + "..." if len(val) > 20 else val if val else "Not set"
+                    status = val[:40] + "..." if len(val) > 40 else val if val else "Not set"
                 icon = "+" if val else "-"
                 lines.append(f"[{icon}] {key}: {status}")
             messagebox.showinfo("API Status", "\n".join(lines))
