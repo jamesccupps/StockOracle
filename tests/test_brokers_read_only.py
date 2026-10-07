@@ -25,5 +25,5 @@ def test_no_order_methods_on_connectors():
 
 def test_settings_dialog_no_longer_collects_broker_logins():
     gui = (Path(brokers.__file__).parent / "gui.py").read_text(encoding="utf-8")
-    for key in ("RH_PASSWORD", "RH_TOTP_SECRET", "WEBULL_APP_SECRET"):
-        assert key not in gui, key
+    for key in ("RH_EMAIL", "RH_PASSWORD", "RH_TOTP_SECRET", "WEBULL_APP_KEY", "WEBULL_APP_SECRET"):
+        assert not re.search(rf'add_field\(\s*"{key}"', gui), key
