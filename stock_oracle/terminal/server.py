@@ -4,8 +4,11 @@ Terminal web server
 FastAPI app: REST endpoints for each terminal function, /ws for live quotes
 and Oracle progress, and the static front end.
 
-When a token is configured (always, if serving beyond localhost), every
-request must carry it once as ?token=..., after which a cookie is set.
+Every request must carry the access token once as ?token=..., after which
+a SameSite=Strict cookie is set. That holds on localhost too: without it any
+web page could POST to 127.0.0.1 (CSRF) or reach it through DNS rebinding.
+When bound to loopback the Host header is also checked against
+settings.LOOPBACK_HOSTS. create_app(token=None) is for in-process tests only.
 """
 import asyncio
 import json
@@ -13,6 +16,7 @@ import logging
 import secrets
 from contextlib import asynccontextmanager
 from typing import Dict, Optional
+from urllib.parse import urlsplit
 
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse, Response
@@ -35,7 +39,16 @@ def _sym(raw: str) -> str:
     return sym
 
 
-def create_app(token: Optional[str] = None) -> FastAPI:
+def _host_only(host_header: str) -> str:
+    """'127.0.0.1:8765' -> '127.0.0.1', '[::1]:8765' -> '[::1]'."""
+    h = (host_header or "").strip().lower()
+    if h.startswith("["):
+        return h[:h.find("]") + 1] if "]" in h else h
+    return h.split(":", 1)[0]
+
+
+def create_app(token: Optional[str] = None,
+               trusted_hosts: Optional[frozenset] = None) -> FastAPI:
     router = DataRouter()
     hub = QuoteHub(router)
     bridge = OracleBridge(notify=hub.broadcast)
@@ -53,14 +66,20 @@ def create_app(token: Optional[str] = None) -> FastAPI:
 
     # ── auth ─────────────────────────────────────────────────
 
+    def _host_ok(headers) -> bool:
+        return trusted_hosts is None or _host_only(headers.get("host", "")) in trusted_hosts
+
     def _authorized(cookies, query, headers) -> bool:
         if not token:
             return True
         supplied = query.get("token") or cookies.get(COOKIE) or headers.get("x-terminal-token")
-        return bool(supplied) and secrets.compare_digest(str(supplied), token)
+        # bytes: compare_digest raises TypeError on non-ASCII str
+        return bool(supplied) and secrets.compare_digest(str(supplied).encode(), token.encode())
 
     @app.middleware("http")
     async def auth_mw(request: Request, call_next):
+        if not _host_ok(request.headers):
+            return JSONResponse({"detail": "Host not allowed."}, 421)
         if not _authorized(request.cookies, request.query_params, request.headers):
             return JSONResponse({"detail": "Missing or wrong terminal token. Open the URL printed "
                                            "in the console (it ends with ?token=...)."}, 401)
@@ -301,7 +320,17 @@ def create_app(token: Optional[str] = None) -> FastAPI:
 
     @app.websocket("/ws")
     async def ws_endpoint(ws: WebSocket):
+        # Browsers always send Origin on websocket handshakes and CORS doesn't
+        # apply to them, so a foreign page is caught here.
+        origin = ws.headers.get("origin")
+        if not _host_ok(ws.headers) or (origin and urlsplit(origin).netloc.lower()
+                                        != ws.headers.get("host", "").lower()):
+            await ws.close()          # before accept() -> HTTP 403
+            return
         if not _authorized(ws.cookies, ws.query_params, ws.headers):
+            # Accept first: a close before accept() reaches the browser as 1006,
+            # and only 4401 tells the client to stop reconnecting.
+            await ws.accept()
             await ws.close(code=4401)
             return
         await ws.accept()

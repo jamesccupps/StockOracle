@@ -5,15 +5,14 @@ Run the Stock Oracle Terminal.
     python -m stock_oracle.terminal --lan           # also reachable over Tailscale / LAN
     python -m stock_oracle.terminal --port 9000 --no-browser
 
-With --lan the terminal requires a token (TERMINAL_TOKEN in .env, or a random
-one generated at startup). Open the printed URL once per device; a cookie
-remembers it after that.
+The terminal always requires a token (TERMINAL_TOKEN in .env, or a random one
+created on first run and kept in stock_oracle/data/terminal_token.txt). Open
+the printed URL once per browser; a cookie remembers it after that.
 """
 import argparse
 import ipaddress
 import logging
 import os
-import secrets
 import socket
 import sys
 import threading
@@ -37,7 +36,8 @@ def main():
     parser.add_argument("--port", type=int, default=None, help="port (default 8765)")
     parser.add_argument("--lan", action="store_true",
                         help="listen on all interfaces so phones/laptops on Tailscale or LAN can connect")
-    parser.add_argument("--token", default=None, help="access token (default: TERMINAL_TOKEN or random when --lan)")
+    parser.add_argument("--token", default=None,
+                        help="access token (default: TERMINAL_TOKEN, else data/terminal_token.txt)")
     parser.add_argument("--no-browser", action="store_true", help="don't open a browser tab")
     args = parser.parse_args()
 
@@ -53,18 +53,18 @@ def main():
     except ValueError:
         loopback = host == "localhost"
 
-    token = args.token or settings.get("TERMINAL_TOKEN") or None
-    if not loopback and not token:
-        token = secrets.token_urlsafe(18)
+    token = args.token or settings.access_token()
 
     logging.getLogger("stock_oracle.terminal").setLevel(logging.INFO)
     if not logging.getLogger().handlers:
         logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(message)s")
 
     from stock_oracle.terminal.server import create_app
-    app = create_app(token=token)
+    # LAN/Tailscale names vary too much to list, so the Host check is loopback-only;
+    # off loopback the token cookie (bound to the host name) does that job.
+    app = create_app(token=token, trusted_hosts=settings.LOOPBACK_HOSTS if loopback else None)
 
-    suffix = f"/?token={token}" if token else "/"
+    suffix = f"/?token={token}"
     local_url = f"http://127.0.0.1:{port}{suffix}"
     keys = settings.key_status()
     print()

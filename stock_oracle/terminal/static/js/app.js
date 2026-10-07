@@ -494,7 +494,7 @@ class App {
 
   paintWs(m) {
     if (!m.connected) {
-      document.getElementById('st-stream').textContent = m.code === 4401 ? 'not authorized — reopen the URL with ?token=' : 'reconnecting…';
+      document.getElementById('st-stream').textContent = m.code === 4401 ? 'not authorized — open the URL printed in the terminal console (…?token=)' : 'reconnecting…';
       document.getElementById('st-dot').className = 'dot off';
     }
   }
@@ -523,6 +523,14 @@ class App {
     clearTimeout(this._msgT);
     this._msgT = setTimeout(() => { this.msgEl.textContent = ''; }, isErr ? 12000 : 6000);
   }
+}
+
+// The server set the auth cookie when it served this page, so drop ?token=
+// from the address bar, history and anything screenshotted.
+if (new URLSearchParams(location.search).has('token')) {
+  const u = new URL(location.href);
+  u.searchParams.delete('token');
+  history.replaceState(null, '', u.pathname + u.search + u.hash);
 }
 
 const app = new App();
