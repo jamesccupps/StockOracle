@@ -176,6 +176,15 @@ StockOracle/
 
 Edit the `WATCHLIST` in `config.py` or add/remove tickers through the GUI. The default list includes major tech, space, and ETF tickers. The system handles 50-60 tickers comfortably.
 
+## Tests
+
+```bash
+pip install -r stock_oracle/requirements.txt pytest
+python -m pytest -q
+```
+
+GitHub Actions runs the suite on Windows with Python 3.11, 3.12 and 3.13 (`.github/workflows/tests.yml`).
+
 ## Disclaimer
 
 **This is a research and educational tool. It is NOT financial advice.** No algorithm can predict the stock market with certainty. Past performance does not guarantee future results. Always do your own research and consult a financial advisor before making investment decisions. Use at your own risk.
