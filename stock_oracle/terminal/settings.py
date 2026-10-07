@@ -11,10 +11,12 @@ Terminal-only options (all optional, set in .env or the environment):
                              the free tier is 60/min shared with the GUI's collectors)
     TERMINAL_POLL_SECONDS    quote refresh interval when nothing is streaming (default 15)
     TERMINAL_PREPOST         1 = include pre/after-hours bars on intraday charts (default 0)
-    TERMINAL_TOKEN           access token required when serving beyond localhost
+    TERMINAL_TOKEN           access token (default: random, generated once and kept in
+                             data/terminal_token.txt; delete that file to rotate it)
 """
 import json
 import os
+import secrets
 import threading
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -31,6 +33,13 @@ WATCHLIST_FILE = Path(cfg.DATA_DIR) / "gui_watchlist.json"
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
+
+# Persisted so bookmarks and the 90-day cookie survive restarts
+TOKEN_FILE = Path(cfg.DATA_DIR) / "terminal_token.txt"
+
+# Host headers accepted when bound to loopback. Anything else is a DNS
+# rebinding attempt: a hostile page whose name now resolves to 127.0.0.1.
+LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "[::1]"})
 
 _env_lock = threading.Lock()
 _env_cache: Dict[str, str] = {}
@@ -118,6 +127,23 @@ def poll_seconds() -> int:
 
 def include_prepost() -> bool:
     return get("TERMINAL_PREPOST", "0").lower() in ("1", "true", "yes")
+
+
+def access_token() -> str:
+    """TERMINAL_TOKEN if set, else the persisted random token (created on first use)."""
+    configured = get("TERMINAL_TOKEN")
+    if configured:
+        return configured
+    try:
+        saved = TOKEN_FILE.read_text(encoding="utf-8").strip()
+        if saved:
+            return saved
+    except OSError:
+        pass
+    token = secrets.token_urlsafe(18)
+    TOKEN_FILE.parent.mkdir(parents=True, exist_ok=True)
+    TOKEN_FILE.write_text(token, encoding="utf-8")
+    return token
 
 
 def key_status() -> Dict[str, bool]:

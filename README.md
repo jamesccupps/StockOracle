@@ -51,8 +51,8 @@ BUILD.bat
 A keyboard-driven market terminal in your browser, built on the same engine, data folder and keys as the desktop app.
 
 ```bash
-python -m stock_oracle.terminal          # or double-click TERMINAL.bat  ->  http://127.0.0.1:8765
-python -m stock_oracle.terminal --lan    # also reachable from your phone over Tailscale/LAN (token-protected)
+python -m stock_oracle.terminal          # or double-click TERMINAL.bat  ->  opens http://127.0.0.1:8765/?token=...
+python -m stock_oracle.terminal --lan    # also reachable from your phone over Tailscale/LAN
 python -m stock_oracle.terminal.selftest # checks every data source with your keys
 ```
 
@@ -82,6 +82,8 @@ Type a ticker to load it into every linked panel, then a function code. `NVDA BR
 **Oracle integration.** `ORC` and `RUN` call the same `StockOracle.analyze()` as the GUI (predictions are recorded and verified the same way). The watchlist shows the newest verdict from either the terminal or the GUI's current monitoring session, so you can monitor in the GUI and read the results in the terminal. `ASK` uses the GUI's Claude settings and monthly spending cap.
 
 **Settings** (optional, in `stock_oracle/.env`): `SEC_USER_AGENT` (SEC wants a real contact email), `TERMINAL_STREAM=auto|finnhub|alpaca|off`, `TERMINAL_FINNHUB_RPM` (default 30, leaving headroom for the GUI on the same key), `TERMINAL_POLL_SECONDS`, `TERMINAL_PREPOST=1` for extended-hours bars, `TERMINAL_TOKEN`, `TERMINAL_PORT`.
+
+**Access token.** Every browser needs the token once: open the URL the console prints (it ends in `?token=...`) and a cookie remembers it for 90 days. This applies on localhost too, because otherwise any web page you visit could send requests to `127.0.0.1` (CSRF) or reach it through DNS rebinding. The token is generated on first run and kept in `stock_oracle/data/terminal_token.txt`; set `TERMINAL_TOKEN` to choose your own, or delete the file to rotate it.
 
 ## Configuration
 
