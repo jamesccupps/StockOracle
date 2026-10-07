@@ -124,3 +124,11 @@ def test_configured_token_wins(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "get", lambda key, default="": "mine" if key == "TERMINAL_TOKEN" else default)
     assert settings.access_token() == "mine"
     assert not (tmp_path / "terminal_token.txt").exists()
+
+
+def test_static_assets_revalidate(client):
+    r = client.get(f"/static/js/app.js?token={TOK}")
+    assert r.status_code == 200 and r.headers["cache-control"] == "no-cache"
+    etag = r.headers["etag"]
+    r2 = client.get("/static/js/app.js", headers={"If-None-Match": etag})
+    assert r2.status_code == 304
