@@ -394,7 +394,10 @@ class ClaudeAdvisor:
             )
             rid = None
 
-            text = response.content[0].text if response.content else ""
+            # Current models think by default, so content can open with a
+            # thinking block; join the text blocks instead of taking [0]
+            text = "".join(getattr(b, "text", "") for b in (response.content or [])
+                           if getattr(b, "type", "") == "text")
             logger.info(
                 f"Claude advisor ({purpose}): {input_tokens}+{output_tokens} tokens, "
                 f"${cost:.4f}"
