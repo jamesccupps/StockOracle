@@ -77,6 +77,7 @@ export class Live {
         }
         this.bus.emit('quotes', changed);
       } else if (msg.t) {
+        if (msg.t === 'status') this.session = msg.session;   // regular | pre_market | after_hours | closed
         this.bus.emit(msg.t, msg);
       }
     };

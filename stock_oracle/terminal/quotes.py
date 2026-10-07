@@ -94,6 +94,15 @@ def _compact(q: Dict) -> Dict:
     }
 
 
+def _same(a: Dict, b: Dict) -> bool:
+    """Equal apart from the fetch time. Re-sending an unchanged quote on every
+    poll (the "u" stamp always differs) is what fed the charts flat bars."""
+    ca, cb = _compact(a), _compact(b)
+    ca.pop("u")
+    cb.pop("u")
+    return ca == cb
+
+
 def _recompute(q: Dict):
     p, pc = q.get("price"), q.get("prev_close")
     if p is not None and pc:
@@ -365,7 +374,7 @@ class QuoteHub:
                 for k in ("bid", "ask"):
                     if k in old:
                         nq[k] = old[k]
-            if old is None or _compact(old) != _compact(nq):
+            if old is None or not _same(old, nq):
                 self.snap[sym] = nq
                 self._dirty.add(sym)
         self.last_poll_at = now
