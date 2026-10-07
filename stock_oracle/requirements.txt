@@ -4,8 +4,6 @@ requests>=2.31.0
 numpy>=1.24.0
 yfinance>=0.2.31
 scikit-learn>=1.3.0
-flask>=3.0.0
-flask-cors>=4.0.0
 websocket-client>=1.7.0
 
 # Webull Official API (real-time MQTT)

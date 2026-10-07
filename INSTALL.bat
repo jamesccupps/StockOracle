@@ -100,7 +100,7 @@ echo.
 if %ERRORLEVEL% NEQ 0 (
     echo.
     echo  Some packages had issues. Trying individually...
-    %PYTHON_CMD% -m pip install requests numpy yfinance scikit-learn flask --quiet 2>nul
+    %PYTHON_CMD% -m pip install requests numpy yfinance scikit-learn --quiet 2>nul
     %PYTHON_CMD% -m pip install anthropic pystray Pillow --quiet 2>nul
 )
 
