@@ -1,25 +1,26 @@
 """
 Broker Connectors: Webull + Robinhood
 ======================================
-Real-time data and trading integration for James's brokerage accounts.
+Read-only market data and account views for Webull and Robinhood.
+
+Order placement was removed on purpose (no paper mode, no size limits, no
+confirmation). Nothing in this module can submit, modify or cancel an order.
 
 WEBULL (Primary — Official API)
   - Real-time quotes via MQTT (true real-time, not 15-min delayed)
   - Snapshots, candlestick history, instrument lookup via HTTP
-  - Full trading: place/modify/cancel orders
   - Apply at: Webull website > Account Center > API Management
   - SDK: pip install webull-sdk  (or webullsdkmdata + webullsdkcore)
 
 ROBINHOOD (Secondary — Unofficial via robin_stocks)
   - Real-time quotes via polling (not websocket, but fast)
   - Portfolio, positions, order history
-  - Full trading: stocks, options, crypto
   - Library: pip install robin-stocks
   - Requires 2FA/TOTP setup for automated login
 
 STRATEGY:
   Use Webull MQTT for real-time price streaming (true tick data).
-  Use Robinhood for portfolio monitoring + trade execution on RH account.
+  Use Robinhood for portfolio monitoring.
   Both feed into the RealtimeBuffer for the Oracle to consume.
 """
 import json
@@ -63,9 +64,6 @@ class WebullConnector:
 
         # Get candlestick history
         bars = wb.get_bars("AAPL", timespan="M5", count=100)
-
-        # Place a trade
-        wb.place_order("AAPL", side="BUY", qty=10, order_type="MARKET")
     """
 
     API_ENDPOINT = "https://api.webull.com"
@@ -225,7 +223,7 @@ class WebullConnector:
             logger.error(f"Webull bars error: {e}")
         return []
 
-    # ── Trading ────────────────────────────────────────────────
+    # ── Account (read-only) ────────────────────────────────────
 
     def get_account_info(self) -> Optional[Dict]:
         """Get Webull account balance and positions."""
@@ -237,61 +235,6 @@ class WebullConnector:
                 return accounts.json()
         except Exception as e:
             logger.error(f"Webull account error: {e}")
-        return None
-
-    def place_order(self, symbol: str, side: str = "BUY", qty: int = 1,
-                    order_type: str = "MARKET", limit_price: float = None) -> Optional[Dict]:
-        """
-        Place a trade on Webull.
-
-        Args:
-            symbol: Stock ticker (e.g. "AAPL")
-            side: "BUY" or "SELL"
-            qty: Number of shares
-            order_type: "MARKET", "LIMIT", "STOP", "STOP_LIMIT"
-            limit_price: Required for LIMIT and STOP_LIMIT orders
-
-        Returns:
-            Order confirmation dict or None on failure
-
-        WARNING: This places REAL orders with REAL money.
-        Test with paper trading first!
-        """
-        logger.warning(f"⚠ PLACING {'PAPER ' if False else ''}ORDER: {side} {qty} {symbol} @ {order_type}")
-
-        try:
-            from webullsdktrade.trade_client import TradeClient
-            import uuid
-
-            trade_client = TradeClient(self._api_client)
-            accounts = trade_client.account_v2.get_account_list()
-            if accounts.status_code != 200:
-                return None
-
-            account_id = accounts.json()[0].get("accountId")
-            client_order_id = str(uuid.uuid4())
-
-            # Build order params based on type
-            order_params = {
-                "clientOrderId": client_order_id,
-                "symbol": symbol,
-                "side": side,
-                "orderType": order_type,
-                "qty": str(qty),
-                "timeInForce": "DAY",
-            }
-            if limit_price and order_type in ("LIMIT", "STOP_LIMIT"):
-                order_params["limitPrice"] = str(limit_price)
-
-            resp = trade_client.order.place_order(account_id, order_params)
-            if resp.status_code == 200:
-                result = resp.json()
-                logger.info(f"Order placed: {result}")
-                return result
-            else:
-                logger.error(f"Order failed: {resp.status_code} {resp.text}")
-        except Exception as e:
-            logger.error(f"Webull order error: {e}")
         return None
 
     def get_status(self) -> Dict:
@@ -310,7 +253,7 @@ class WebullConnector:
 
 class RobinhoodConnector:
     """
-    Real-time quotes and trading via Robinhood (unofficial API).
+    Real-time quotes and portfolio via Robinhood (unofficial API). Read-only.
 
     Setup:
       1. pip install robin-stocks pyotp
@@ -334,8 +277,6 @@ class RobinhoodConnector:
         # Get portfolio
         portfolio = rh.get_portfolio()
 
-        # Place a trade
-        rh.place_order("AAPL", side="BUY", qty=1)
 
     NOTE: robin_stocks is unofficial. Robinhood can change their internal
     API at any time, which may temporarily break functionality.
@@ -557,75 +498,7 @@ class RobinhoodConnector:
         except Exception:
             return []
 
-    # ── Trading ────────────────────────────────────────────────
-
-    def place_order(self, symbol: str, side: str = "BUY", qty: int = 1,
-                    order_type: str = "MARKET", limit_price: float = None,
-                    time_in_force: str = "gfd") -> Optional[Dict]:
-        """
-        Place a trade on Robinhood.
-
-        Args:
-            symbol: Ticker
-            side: "BUY" or "SELL"
-            qty: Number of shares (supports fractional)
-            order_type: "MARKET" or "LIMIT"
-            limit_price: Required for LIMIT orders
-            time_in_force: "gfd" (good for day), "gtc" (good til cancelled)
-
-        WARNING: REAL orders, REAL money. No confirmation prompt.
-        """
-        if not self._rh or not self._logged_in:
-            logger.error("Not logged into Robinhood")
-            return None
-
-        logger.warning(f"⚠ ROBINHOOD ORDER: {side} {qty} {symbol} @ {order_type}")
-
-        try:
-            if side.upper() == "BUY":
-                if order_type.upper() == "MARKET":
-                    result = self._rh.order_buy_market(
-                        symbol, qty, timeInForce=time_in_force
-                    )
-                elif order_type.upper() == "LIMIT" and limit_price:
-                    result = self._rh.order_buy_limit(
-                        symbol, qty, limit_price, timeInForce=time_in_force
-                    )
-                else:
-                    logger.error(f"Invalid order type: {order_type}")
-                    return None
-
-            elif side.upper() == "SELL":
-                if order_type.upper() == "MARKET":
-                    result = self._rh.order_sell_market(
-                        symbol, qty, timeInForce=time_in_force
-                    )
-                elif order_type.upper() == "LIMIT" and limit_price:
-                    result = self._rh.order_sell_limit(
-                        symbol, qty, limit_price, timeInForce=time_in_force
-                    )
-                else:
-                    return None
-            else:
-                return None
-
-            if result:
-                logger.info(f"RH order result: {result.get('id', 'unknown')}")
-            return result
-
-        except Exception as e:
-            logger.error(f"RH order error: {e}")
-            return None
-
-    def cancel_order(self, order_id: str) -> bool:
-        """Cancel an open order."""
-        if not self._rh:
-            return False
-        try:
-            result = self._rh.cancel_stock_order(order_id)
-            return result is not None
-        except Exception:
-            return False
+    # ── Orders (read-only) ─────────────────────────────────────
 
     def get_open_orders(self) -> List[Dict]:
         """Get all open/pending orders."""
@@ -658,7 +531,6 @@ class DualBrokerManager:
     Strategy:
       - Webull MQTT for real-time price data (faster, official)
       - Robinhood for portfolio monitoring and secondary quotes
-      - Trade execution on whichever account you choose
       - Both feed into a single RealtimeBuffer for the Oracle
 
     Usage:
@@ -674,8 +546,6 @@ class DualBrokerManager:
         # Get combined portfolio across both brokers
         portfolio = mgr.get_combined_portfolio()
 
-        # Execute trade on a specific broker
-        mgr.trade("AAPL", "BUY", 10, broker="webull")
     """
 
     def __init__(
@@ -764,17 +634,6 @@ class DualBrokerManager:
                 result["total_equity"] += rh_info.get("equity", 0)
 
         return result
-
-    def trade(self, symbol: str, side: str, qty: int,
-              broker: str = "webull", **kwargs) -> Optional[Dict]:
-        """Execute a trade on a specific broker."""
-        if broker == "webull" and self.webull:
-            return self.webull.place_order(symbol, side, qty, **kwargs)
-        elif broker == "robinhood" and self.robinhood:
-            return self.robinhood.place_order(symbol, side, qty, **kwargs)
-        else:
-            logger.error(f"Broker '{broker}' not available")
-            return None
 
     def get_status(self) -> Dict:
         return {
