@@ -97,9 +97,9 @@ def test_ws_without_token_closes_4401(client):
 def test_lan_mode_skips_host_check_but_needs_token():
     lan = create_app(token=TOK, trusted_hosts=None)
     with TestClient(lan) as c:
-        assert c.get("/api/watchlist", headers={"Host": "james-desktop:8765"}).status_code == 401
+        assert c.get("/api/watchlist", headers={"Host": "lan-host:8765"}).status_code == 401
         assert c.get(f"/api/watchlist?token={TOK}",
-                     headers={"Host": "james-desktop:8765"}).status_code == 200
+                     headers={"Host": "lan-host:8765"}).status_code == 200
 
 
 @pytest.mark.parametrize("raw,expected", [

@@ -1,8 +1,8 @@
 """
 Ollama NLP Engine
 =================
-Local AI-powered analysis using James's Ollama setup.
-Runs on the local network (192.168.8.32:11434) using qwen2.5:14b.
+Local AI-powered analysis via Ollama (OLLAMA_URL, default
+http://localhost:11434; model OLLAMA_MODEL, default qwen2.5:14b).
 
 Features:
 - Earnings call transcript analysis
