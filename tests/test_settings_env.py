@@ -34,3 +34,24 @@ def test_retired_broker_credentials_are_dropped():
 
 def test_empty_file():
     assert _keys(merge_env("", {"A": "1", "B": ""})) == {"A": "1"}
+
+
+import pytest  # noqa: E402
+
+
+@pytest.mark.parametrize("url,opens", [
+    ("https://www.reuters.com/markets/x", True),
+    ("http://example.com/a?b=c", True),
+    ("file:///C:/Windows/System32/calc.exe", False),
+    (r"\\attacker\share\x.exe", False),
+    ("javascript:alert(1)", False),
+    ("ms-settings:", False),
+    ("", False),
+])
+def test_news_links_only_open_http(monkeypatch, url, opens):
+    import webbrowser
+    from stock_oracle.gui import open_news_url
+    opened = []
+    monkeypatch.setattr(webbrowser, "open", lambda u: opened.append(u))
+    assert open_news_url(url) is opens
+    assert bool(opened) is opens
