@@ -53,3 +53,19 @@ def test_cv_is_not_inflated_by_repeated_rows(tmp_path, monkeypatch, caplog):
     assert rf < 0.5, f"CV {rf:.3f} on noise labels means repeated rows leaked into validation"
     assert 0.2 < base < 0.5
     assert p.is_trained and (tmp_path / "ensemble_models.pkl").exists()
+
+
+@pytest.mark.parametrize("sig,conf", [(float("nan"), 0.8), (0.5, float("nan")), (None, 0.5), ("x", 0.5)])
+def test_non_numeric_signal_becomes_neutral_not_max_bullish(sig, conf):
+    from stock_oracle.collectors.base import SignalResult
+    r = SignalResult("employee_sentiment", "AAPL", sig, conf, details="ollama")
+    assert (r.signal_value, r.confidence) == (0.0, 0.0)
+    assert "discarded" in r.details
+
+
+def test_signal_clamping_unchanged_for_numbers():
+    from stock_oracle.collectors.base import SignalResult
+    r = SignalResult("x", "AAPL", 3.0, 1.7)
+    assert (r.signal_value, r.confidence) == (1.0, 1.0)
+    r = SignalResult("x", "AAPL", float("-inf"), 0.4)
+    assert (r.signal_value, r.confidence) == (-1.0, 0.4)
