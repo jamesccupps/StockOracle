@@ -15,29 +15,47 @@ Cost safeguards:
   - Per-call token limits
   - Usage tracking with persistent log
   - Auto-disables when approaching limit
-  - Haiku by default (cheapest model)
+  - Haiku by default (cheap)
+  - Spend is reserved before each call and shared across processes
 
 Requires: pip install anthropic
 API key: console.anthropic.com
 """
 import json
 import logging
+import os
+import threading
 import time
+import uuid
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
+import stock_oracle.config as cfg
+
 logger = logging.getLogger("stock_oracle")
 
 # ── Cost tracking ──────────────────────────────────────────────
-# Pricing as of March 2026 (per 1M tokens)
+# First-party API prices per 1M tokens, as of 2026-10-06.
 MODEL_COSTS = {
-    "claude-haiku-4-5-20251001": {"input": 1.00, "output": 5.00},
-    "claude-sonnet-4-20250514":  {"input": 3.00, "output": 15.00},
+    "claude-fable-5-1":          {"input": 10.00, "output": 50.00},
+    "claude-fable-5":            {"input": 10.00, "output": 50.00},
+    "claude-opus-5-5":           {"input": 4.00,  "output": 20.00},
+    "claude-opus-5":             {"input": 5.00,  "output": 25.00},
+    "claude-opus-4-8":           {"input": 5.00,  "output": 25.00},
+    "claude-sonnet-5-5":         {"input": 2.00,  "output": 10.00},
+    "claude-sonnet-5":           {"input": 2.00,  "output": 10.00},
+    "claude-sonnet-4-6":         {"input": 3.00,  "output": 15.00},
+    "claude-haiku-5-5":          {"input": 0.10,  "output": 0.50},   # prompts <=100K (we cap at 12K)
+    "claude-haiku-4-5":          {"input": 1.00,  "output": 5.00},
+    "claude-haiku-4-5-20251001": {"input": 1.00,  "output": 5.00},
+    "claude-sonnet-4-20250514":  {"input": 3.00,  "output": 15.00},  # deprecated
 }
 DEFAULT_MODEL = "claude-haiku-4-5-20251001"
-FALLBACK_INPUT_COST = 3.00   # $/1M tokens — conservative fallback
-FALLBACK_OUTPUT_COST = 15.00
+# Unknown model: assume the most expensive tier so the cap can only undershoot
+FALLBACK_INPUT_COST = 10.00
+FALLBACK_OUTPUT_COST = 50.00
 
 # Safety limits
 DEFAULT_MONTHLY_CAP = 10.00        # Hard cap in dollars
@@ -45,156 +63,242 @@ WARNING_THRESHOLD_PCT = 0.80       # Warn at 80% of cap
 PER_CALL_MAX_INPUT_TOKENS = 12000  # Won't send more than this
 PER_CALL_MAX_OUTPUT_TOKENS = 4000  # Won't request more than this
 MIN_BALANCE_FOR_CALL = 0.50        # Stop if less than $0.50 remaining
+RESERVATION_TTL = 900              # seconds; drops holds left by a crashed process
 
-# Paths
-DATA_DIR = Path("stock_oracle/data")
+# Paths: config.DATA_DIR, not a cwd-relative path, so the GUI, the terminal
+# and the frozen build all charge the same budget.
+DATA_DIR = Path(cfg.DATA_DIR)
 USAGE_FILE = DATA_DIR / "claude_usage.json"
+LOCK_FILE = DATA_DIR / "claude_usage.lock"
+
+_thread_lock = threading.RLock()
+
+
+class UsageFileError(RuntimeError):
+    """claude_usage.json exists but can't be parsed; spending is refused."""
+
+
+@contextmanager
+def _usage_lock(timeout: float = 10.0):
+    """Exclusive lock across threads and processes (GUI + terminal) for one read-modify-write."""
+    with _thread_lock:
+        LOCK_FILE.parent.mkdir(parents=True, exist_ok=True)
+        with open(LOCK_FILE, "a+b") as fh:
+            if os.name == "nt":
+                import msvcrt
+                deadline = time.monotonic() + timeout
+                while True:
+                    try:
+                        fh.seek(0)
+                        msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)
+                        break
+                    except OSError:
+                        if time.monotonic() > deadline:
+                            raise TimeoutError(f"{LOCK_FILE} held for more than {timeout}s")
+                        time.sleep(0.02)
+                try:
+                    yield
+                finally:
+                    fh.seek(0)
+                    msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                import fcntl
+                fcntl.flock(fh, fcntl.LOCK_EX)
+                try:
+                    yield
+                finally:
+                    fcntl.flock(fh, fcntl.LOCK_UN)
+
+
+def _price(model: str) -> Tuple[float, float]:
+    c = MODEL_COSTS.get(model, {})
+    return c.get("input", FALLBACK_INPUT_COST), c.get("output", FALLBACK_OUTPUT_COST)
+
+
+def estimate_cost(input_tokens: int, output_tokens: int, model: str) -> float:
+    pin, pout = _price(model)
+    return input_tokens / 1_000_000 * pin + output_tokens / 1_000_000 * pout
 
 
 class SpendingTracker:
     """
-    Tracks API spending with persistent storage.
-    Resets monthly. Hard cap enforcement.
+    Monthly spend cap shared by every advisor instance, thread and process.
+
+    The file is the source of truth and is re-read under an exclusive lock for
+    every check and every update, so concurrent callers can't overwrite each
+    other's spend. A call first reserves its worst-case cost, which makes
+    concurrent calls see each other before any of them is billed. It then
+    settles to the actual cost, or releases the hold if it fails.
     """
 
     def __init__(self, monthly_cap: float = DEFAULT_MONTHLY_CAP):
-        self._requested_cap = monthly_cap
         self.monthly_cap = monthly_cap
-        self._load()
-
-    def _load(self):
-        """Load usage from disk."""
-        try:
-            if USAGE_FILE.exists():
-                with open(USAGE_FILE) as f:
-                    data = json.load(f)
-                self.current_month = data.get("month", "")
-                self.total_spent = data.get("total_spent", 0.0)
-                self.total_calls = data.get("total_calls", 0)
-                self.total_input_tokens = data.get("total_input_tokens", 0)
-                self.total_output_tokens = data.get("total_output_tokens", 0)
-                self.call_log = data.get("call_log", [])
-                # Constructor cap is authoritative — if user changed it
-                # in Settings, the new value takes priority over saved file
-                self.monthly_cap = self._requested_cap
-            else:
-                self._reset()
-        except Exception:
-            self._reset()
-
-        # Auto-reset if month changed
-        now_month = datetime.now().strftime("%Y-%m")
-        if self.current_month != now_month:
-            logger.info(f"Claude advisor: new month ({now_month}), resetting usage")
-            self._reset()
-            self.current_month = now_month
-            self._save()
-
-    def _reset(self):
+        self.error = ""
         self.current_month = datetime.now().strftime("%Y-%m")
         self.total_spent = 0.0
+        self.reserved = 0.0
         self.total_calls = 0
         self.total_input_tokens = 0
         self.total_output_tokens = 0
-        self.call_log = []
-
-    def _save(self):
-        """Persist usage to disk."""
-        DATA_DIR.mkdir(parents=True, exist_ok=True)
-        # Keep only last 100 call log entries
-        trimmed_log = self.call_log[-100:]
-        data = {
-            "month": self.current_month,
-            "total_spent": round(self.total_spent, 6),
-            "total_calls": self.total_calls,
-            "total_input_tokens": self.total_input_tokens,
-            "total_output_tokens": self.total_output_tokens,
-            "monthly_cap": self.monthly_cap,
-            "call_log": trimmed_log,
-        }
+        self.call_log: List[Dict] = []
         try:
-            with open(USAGE_FILE, "w") as f:
-                json.dump(data, f, indent=2)
-        except Exception as e:
-            logger.error(f"Failed to save usage: {e}")
+            with _usage_lock():
+                self._sync(self._read())
+        except (UsageFileError, OSError) as e:
+            self.error = str(e)
+            logger.error(f"Claude advisor: {e}")
+
+    # ── file I/O (caller holds the lock) ───────────────────────
+
+    def _read(self) -> Dict:
+        month = datetime.now().strftime("%Y-%m")
+        fresh = {"month": month, "total_spent": 0.0, "total_calls": 0,
+                 "total_input_tokens": 0, "total_output_tokens": 0,
+                 "call_log": [], "reservations": {}}
+        if not USAGE_FILE.exists():
+            return fresh
+        try:
+            data = json.loads(USAGE_FILE.read_text(encoding="utf-8"))
+            if not isinstance(data, dict):
+                raise ValueError("top level is not an object")
+            float(data.get("total_spent", 0.0))
+        except (OSError, ValueError, TypeError) as e:
+            # Fail closed: resetting to $0 here would silently void the cap
+            raise UsageFileError(
+                f"{USAGE_FILE} is unreadable ({e}). Claude calls are blocked until "
+                f"it is fixed or deleted.") from None
+        if data.get("month") != month:
+            logger.info(f"Claude advisor: new month ({month}), resetting usage")
+            return fresh
+        for k, v in fresh.items():
+            data.setdefault(k, v)
+        now = time.time()
+        data["reservations"] = {rid: r for rid, r in (data.get("reservations") or {}).items()
+                                if now - float(r.get("at", 0)) < RESERVATION_TTL}
+        return data
+
+    def _write(self, data: Dict):
+        data["call_log"] = data["call_log"][-100:]
+        data["monthly_cap"] = self.monthly_cap
+        data["total_spent"] = round(data["total_spent"], 6)
+        tmp = USAGE_FILE.with_name(f"{USAGE_FILE.stem}.{os.getpid()}.tmp")
+        tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        os.replace(tmp, USAGE_FILE)
+
+    def _sync(self, data: Dict):
+        self.current_month = data["month"]
+        self.total_spent = float(data["total_spent"])
+        self.reserved = sum(float(r.get("amount", 0)) for r in data["reservations"].values())
+        self.total_calls = data["total_calls"]
+        self.total_input_tokens = data["total_input_tokens"]
+        self.total_output_tokens = data["total_output_tokens"]
+        self.call_log = data["call_log"]
+        self.error = ""
+
+    def _check(self, data: Dict, estimated_cost: float) -> Tuple[bool, str]:
+        held = sum(float(r.get("amount", 0)) for r in data["reservations"].values())
+        remaining = self.monthly_cap - data["total_spent"] - held
+        if remaining < MIN_BALANCE_FOR_CALL:
+            return False, (f"Monthly spending cap reached. Spent ${data['total_spent']:.2f} "
+                           f"of ${self.monthly_cap:.2f} limit"
+                           + (" (plus calls in flight)" if held else "")
+                           + ". Resets next month.")
+        if estimated_cost > remaining:
+            return False, (f"This call would cost up to ${estimated_cost:.4f} but only "
+                           f"${remaining:.2f} remains in the monthly budget.")
+        return True, f"OK (est ${estimated_cost:.4f}, ${remaining:.2f} remaining)"
+
+    # ── public API ─────────────────────────────────────────────
 
     def can_afford(self, estimated_input_tokens: int = 4000,
                    estimated_output_tokens: int = 1000,
                    model: str = DEFAULT_MODEL) -> Tuple[bool, str]:
-        """
-        Check if we can afford a call. Returns (ok, reason).
-        ALWAYS checks before every API call.
-        """
-        remaining = self.monthly_cap - self.total_spent
+        """Read-only check. Use reserve() before an actual call."""
+        try:
+            with _usage_lock():
+                data = self._read()
+                self._sync(data)
+                return self._check(data, estimate_cost(estimated_input_tokens,
+                                                       estimated_output_tokens, model))
+        except (UsageFileError, OSError) as e:
+            self.error = str(e)
+            return False, str(e)
 
-        if remaining < MIN_BALANCE_FOR_CALL:
-            return False, (
-                f"Monthly spending cap reached. "
-                f"Spent ${self.total_spent:.2f} of ${self.monthly_cap:.2f} limit. "
-                f"Resets next month."
-            )
+    def reserve(self, estimated_input_tokens: int, estimated_output_tokens: int,
+                model: str) -> Tuple[Optional[str], str]:
+        """Hold the worst-case cost of a call. Returns (reservation_id or None, reason)."""
+        est = estimate_cost(estimated_input_tokens, estimated_output_tokens, model)
+        try:
+            with _usage_lock():
+                data = self._read()
+                ok, reason = self._check(data, est)
+                if not ok:
+                    self._sync(data)
+                    return None, reason
+                rid = uuid.uuid4().hex
+                data["reservations"][rid] = {"amount": round(est, 6), "at": time.time(),
+                                             "pid": os.getpid()}
+                self._write(data)
+                self._sync(data)
+                return rid, reason
+        except (UsageFileError, OSError) as e:
+            self.error = str(e)
+            return None, str(e)
 
-        # Estimate cost of this call
-        costs = MODEL_COSTS.get(model, {})
-        input_cost = costs.get("input", FALLBACK_INPUT_COST)
-        output_cost = costs.get("output", FALLBACK_OUTPUT_COST)
-
-        estimated_cost = (
-            (estimated_input_tokens / 1_000_000) * input_cost +
-            (estimated_output_tokens / 1_000_000) * output_cost
-        )
-
-        if estimated_cost > remaining:
-            return False, (
-                f"This call would cost ~${estimated_cost:.4f} but only "
-                f"${remaining:.2f} remaining in monthly budget."
-            )
-
-        return True, f"OK (est ${estimated_cost:.4f}, ${remaining:.2f} remaining)"
+    def release(self, reservation_id: Optional[str]):
+        """Drop a hold for a call that never completed."""
+        if not reservation_id:
+            return
+        try:
+            with _usage_lock():
+                data = self._read()
+                if data["reservations"].pop(reservation_id, None) is not None:
+                    self._write(data)
+                self._sync(data)
+        except (UsageFileError, OSError) as e:
+            logger.error(f"Claude advisor: could not release reservation: {e}")
 
     def record_call(self, input_tokens: int, output_tokens: int,
-                    model: str, purpose: str):
-        """Record a completed API call."""
-        costs = MODEL_COSTS.get(model, {})
-        input_cost = costs.get("input", FALLBACK_INPUT_COST)
-        output_cost = costs.get("output", FALLBACK_OUTPUT_COST)
+                    model: str, purpose: str, reservation_id: Optional[str] = None) -> float:
+        """Charge a completed call (and drop its reservation). Returns its cost."""
+        cost = estimate_cost(input_tokens, output_tokens, model)
+        try:
+            with _usage_lock():
+                data = self._read()
+                data["reservations"].pop(reservation_id, None)
+                data["total_spent"] += cost
+                data["total_calls"] += 1
+                data["total_input_tokens"] += input_tokens
+                data["total_output_tokens"] += output_tokens
+                data["call_log"].append({
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "model": model,
+                    "purpose": purpose,
+                    "input_tokens": input_tokens,
+                    "output_tokens": output_tokens,
+                    "cost": round(cost, 6),
+                })
+                self._write(data)
+                self._sync(data)
+        except (UsageFileError, OSError) as e:
+            # The call was billed; make the lost record loud
+            self.error = str(e)
+            logger.error(f"Claude advisor: ${cost:.4f} call NOT recorded against the cap: {e}")
+            return cost
 
-        cost = (
-            (input_tokens / 1_000_000) * input_cost +
-            (output_tokens / 1_000_000) * output_cost
-        )
-
-        self.total_spent += cost
-        self.total_calls += 1
-        self.total_input_tokens += input_tokens
-        self.total_output_tokens += output_tokens
-
-        self.call_log.append({
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "model": model,
-            "purpose": purpose,
-            "input_tokens": input_tokens,
-            "output_tokens": output_tokens,
-            "cost": round(cost, 6),
-        })
-
-        self._save()
-
-        # Warn if approaching limit
-        pct = self.total_spent / self.monthly_cap
+        pct = self.total_spent / self.monthly_cap if self.monthly_cap > 0 else 1.0
         if pct >= WARNING_THRESHOLD_PCT:
             logger.warning(
                 f"Claude advisor: ${self.total_spent:.2f} of "
                 f"${self.monthly_cap:.2f} monthly cap used ({pct:.0%})"
             )
-
         return cost
 
     def get_status(self) -> Dict:
-        """Get current usage status for display."""
-        remaining = self.monthly_cap - self.total_spent
+        """Current usage for display (as of the last read)."""
+        remaining = self.monthly_cap - self.total_spent - self.reserved
         pct = self.total_spent / self.monthly_cap if self.monthly_cap > 0 else 0
-        return {
+        status = {
             "month": self.current_month,
             "spent": round(self.total_spent, 4),
             "cap": self.monthly_cap,
@@ -203,8 +307,11 @@ class SpendingTracker:
             "calls": self.total_calls,
             "input_tokens": self.total_input_tokens,
             "output_tokens": self.total_output_tokens,
-            "enabled": remaining >= MIN_BALANCE_FOR_CALL,
+            "enabled": remaining >= MIN_BALANCE_FOR_CALL and not self.error,
         }
+        if self.error:
+            status["error"] = self.error
+        return status
 
 
 class ClaudeAdvisor:
@@ -257,9 +364,10 @@ class ClaudeAdvisor:
         est_input = len(system_prompt + user_message) // 4
         est_input = min(est_input, PER_CALL_MAX_INPUT_TOKENS)
 
-        # Spending check
-        ok, reason = self.tracker.can_afford(est_input, max_output, self.model)
-        if not ok:
+        # Hold the worst-case cost before calling, so concurrent calls can't
+        # all pass the check and overshoot the cap together
+        rid, reason = self.tracker.reserve(est_input, max_output, self.model)
+        if not rid:
             logger.warning(f"Claude advisor blocked: {reason}")
             return None
 
@@ -282,8 +390,9 @@ class ClaudeAdvisor:
             input_tokens = response.usage.input_tokens
             output_tokens = response.usage.output_tokens
             cost = self.tracker.record_call(
-                input_tokens, output_tokens, self.model, purpose
+                input_tokens, output_tokens, self.model, purpose, reservation_id=rid
             )
+            rid = None
 
             text = response.content[0].text if response.content else ""
             logger.info(
@@ -295,6 +404,8 @@ class ClaudeAdvisor:
         except Exception as e:
             logger.error(f"Claude advisor error: {e}")
             return None
+        finally:
+            self.tracker.release(rid)
 
     # ── Advisor Modes ──────────────────────────────────────────
 
