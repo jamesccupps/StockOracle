@@ -87,7 +87,10 @@ def _lookup_sec(ticker: str) -> Optional[str]:
     try:
         import requests
         url = "https://www.sec.gov/files/company_tickers.json"
-        headers = {"User-Agent": "StockOracle research@stockoracle.local"}
+        import stock_oracle.config as cfg
+        # SEC fair-access policy wants a real contact; use the configured one
+        # (read at call time, since the GUI's Settings can change it)
+        headers = {"User-Agent": cfg.SEC_USER_AGENT}
         resp = requests.get(url, headers=headers, timeout=10)
         if resp.status_code == 200:
             data = resp.json()

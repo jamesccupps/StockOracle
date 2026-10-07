@@ -119,3 +119,24 @@ def test_terminal_falls_back_to_yahoo_when_finnhub_unreachable(monkeypatch):
     assert r.status_code == 200
     assert r.json()["src"] == "yahoo"
     assert SECRET not in r.text
+
+
+def test_ticker_resolver_uses_configured_sec_contact(monkeypatch):
+    import stock_oracle.config as cfg
+    from stock_oracle.utils import ticker_resolver
+    seen = {}
+
+    class Resp:
+        status_code = 200
+
+        def json(self):
+            return {"0": {"ticker": "AAPL", "title": "APPLE INC."}}
+
+    def fake_get(url, headers=None, timeout=None):
+        seen["ua"] = headers["User-Agent"]
+        return Resp()
+
+    monkeypatch.setattr(cfg, "SEC_USER_AGENT", "StockOracle someone@example.org")
+    monkeypatch.setattr("requests.get", fake_get)
+    assert ticker_resolver._lookup_sec("AAPL") == "Apple Inc."
+    assert seen["ua"] == "StockOracle someone@example.org"
