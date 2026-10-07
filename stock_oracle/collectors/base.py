@@ -5,6 +5,7 @@ All signal collectors inherit from this base class.
 Provides caching, rate limiting, error handling, and a standard interface.
 """
 import json
+import math
 import time
 import hashlib
 import logging
@@ -18,6 +19,13 @@ from stock_oracle.config import CACHE_DIR, CACHE_TTL_HOURS, REQUEST_DELAY, MAX_R
 from stock_oracle.utils.redact import redact
 
 logger = logging.getLogger("stock_oracle")
+
+
+def _is_number(v) -> bool:
+    try:
+        return not math.isnan(float(v))
+    except (TypeError, ValueError):
+        return False
 
 
 class SignalResult:
@@ -36,8 +44,16 @@ class SignalResult:
     ):
         self.collector_name = collector_name
         self.ticker = ticker
-        self.signal_value = max(-1.0, min(1.0, signal_value))
-        self.confidence = max(0.0, min(1.0, confidence))
+        if not (_is_number(signal_value) and _is_number(confidence)):
+            # NaN passes straight through max/min clamping as the upper bound
+            # (max(-1, min(1, nan)) == 1.0), so a failed computation became a
+            # full-confidence, maximum-bullish signal
+            logger.warning(f"{collector_name}/{ticker}: non-numeric signal "
+                           f"({signal_value!r}, conf {confidence!r}) treated as neutral")
+            signal_value, confidence = 0.0, 0.0
+            details = f"{details} [non-numeric result discarded]".strip()
+        self.signal_value = max(-1.0, min(1.0, float(signal_value)))
+        self.confidence = max(0.0, min(1.0, float(confidence)))
         self.raw_data = raw_data
         self.details = details
         self.timestamp = timestamp or datetime.now(timezone.utc)
