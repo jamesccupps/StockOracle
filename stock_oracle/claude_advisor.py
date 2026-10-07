@@ -183,7 +183,16 @@ class SpendingTracker:
         data["total_spent"] = round(data["total_spent"], 6)
         tmp = USAGE_FILE.with_name(f"{USAGE_FILE.stem}.{os.getpid()}.tmp")
         tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
-        os.replace(tmp, USAGE_FILE)
+        # Windows: a scanner/indexer can hold the just-written target for a few
+        # ms, and os.replace then fails with WinError 5. Seen in the 4-process test.
+        for attempt in range(40):
+            try:
+                os.replace(tmp, USAGE_FILE)
+                return
+            except PermissionError:
+                if attempt == 39:
+                    raise
+                time.sleep(0.025)
 
     def _sync(self, data: Dict):
         self.current_month = data["month"]
