@@ -55,3 +55,22 @@ def test_news_links_only_open_http(monkeypatch, url, opens):
     monkeypatch.setattr(webbrowser, "open", lambda u: opened.append(u))
     assert open_news_url(url) is opens
     assert bool(opened) is opens
+
+
+def test_no_cwd_relative_data_paths():
+    # A frozen build (or any launch outside the repo root) reads/writes the
+    # wrong files if a module hard-codes Path("stock_oracle/...")
+    import pathlib
+    import re
+    pkg = pathlib.Path(__file__).resolve().parent.parent / "stock_oracle"
+    hits = [f"{p.relative_to(pkg)}:{i}" for p in pkg.rglob("*.py")
+            for i, line in enumerate(p.read_text(encoding="utf-8").splitlines(), 1)
+            if re.search(r"""Path\(\s*["']stock_oracle[/\\]""", line)]
+    assert not hits, hits
+
+
+def test_intelligence_and_advisor_paths_follow_data_dir():
+    import stock_oracle.config as cfg
+    from stock_oracle import claude_advisor, signal_intelligence
+    assert signal_intelligence.INTELLIGENCE_FILE.parent == cfg.DATA_DIR
+    assert claude_advisor.USAGE_FILE.parent == cfg.DATA_DIR
