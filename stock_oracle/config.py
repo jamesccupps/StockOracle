@@ -164,10 +164,6 @@ BACKTEST_TAKE_PROFIT = 0.15
 BACKTEST_SIGNAL_THRESHOLD = 0.12
 BACKTEST_CONFIDENCE_THRESHOLD = 0.4
 
-# Dashboard
-DASHBOARD_HOST = "0.0.0.0"
-DASHBOARD_PORT = 5000
-
 # UI Colors (shared between gui.py and setup_wizard.py)
 BG_DARK     = "#0d1117"
 BG_PANEL    = "#161b22"

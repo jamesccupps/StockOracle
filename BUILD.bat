@@ -111,7 +111,6 @@ echo [3/4] Building standalone app (this takes 2-5 minutes)...
     --hidden-import "numpy" ^
     --hidden-import "yfinance" ^
     --hidden-import "anthropic" ^
-    --hidden-import "flask" ^
     --hidden-import "PIL" ^
     --hidden-import "pystray" ^
     --hidden-import "zoneinfo" ^
