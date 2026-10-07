@@ -3953,7 +3953,7 @@ class StockOracleGUI:
 
         # Load intraday verified data
         from pathlib import Path
-        verified_file = Path("stock_oracle/data/sessions/intraday_verified.jsonl")
+        verified_file = Path(DATA_DIR) / "sessions" / "intraday_verified.jsonl"
         if not verified_file.exists():
             self._log("No intraday verified data for session review")
             return
@@ -4049,7 +4049,7 @@ class StockOracleGUI:
         recent_verified = []
         try:
             from pathlib import Path
-            vf = Path("stock_oracle/data/sessions/intraday_verified.jsonl")
+            vf = Path(DATA_DIR) / "sessions" / "intraday_verified.jsonl"
             if vf.exists():
                 for line in open(vf):
                     recent_verified.append(json.loads(line.strip()))

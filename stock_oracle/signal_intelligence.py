@@ -28,7 +28,10 @@ from typing import Dict, List, Optional, Tuple
 
 logger = logging.getLogger("stock_oracle")
 
-INTELLIGENCE_FILE = Path("stock_oracle/data/signal_intelligence.json")
+# config.DATA_DIR, not cwd-relative: frozen builds keep data in %APPDATA%
+from stock_oracle.config import DATA_DIR  # noqa: E402
+
+INTELLIGENCE_FILE = Path(DATA_DIR) / "signal_intelligence.json"
 
 # ── Configuration ─────────────────────────────────────────────
 # How many consecutive identical readings before a signal is "stale"
