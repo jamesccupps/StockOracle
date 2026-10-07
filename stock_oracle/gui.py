@@ -39,6 +39,18 @@ RETIRED_ENV_KEYS = frozenset({"RH_EMAIL", "RH_PASSWORD", "RH_TOTP_SECRET",
                               "WEBULL_APP_KEY", "WEBULL_APP_SECRET"})
 
 
+def open_news_url(url: str) -> bool:
+    """Open a news link only if it is http(s). The URL comes straight from a
+    third-party feed, and on Windows webbrowser.open can fall back to
+    os.startfile, which would run a file: or UNC target."""
+    from urllib.parse import urlsplit
+    import webbrowser
+    if urlsplit(str(url).strip()).scheme.lower() not in ("http", "https"):
+        return False
+    webbrowser.open(url)
+    return True
+
+
 def merge_env(existing_text: str, settings: Dict[str, str], stamp: str = "") -> str:
     """
     New .env content: the dialog's fields (``settings`` holds every one of
@@ -1812,7 +1824,7 @@ class StockOracleGUI:
                             self.detail_text.tag_configure(tag_name, foreground=BLUE,
                                                             font=("Segoe UI", 8, "underline"))
                             self.detail_text.tag_bind(tag_name, "<Button-1>",
-                                lambda e, u=url: __import__("webbrowser").open(u))
+                                lambda e, u=url: open_news_url(u))
                             self.detail_text.tag_bind(tag_name, "<Enter>",
                                 lambda e: self.detail_text.configure(cursor="hand2"))
                             self.detail_text.tag_bind(tag_name, "<Leave>",
@@ -3051,7 +3063,7 @@ class StockOracleGUI:
                                          cursor="hand2")
                     link_btn.pack(side="right")
                     link_btn.bind("<Button-1>",
-                                  lambda e, u=url: __import__("webbrowser").open(u))
+                                  lambda e, u=url: open_news_url(u))
 
                 # Summary (truncated)
                 if summary:
