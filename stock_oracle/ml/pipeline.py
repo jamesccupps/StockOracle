@@ -142,7 +142,8 @@ class FeatureEngine:
                                     "ma20_vs_ma50", "volume_ratio"])
 
         # ── Cross-signal features (ALWAYS added) ─────────────────
-        signal_values = [s.get("signal", 0) for s in signals if s.get("confidence", 0) > 0.2]
+        confident = [s for s in signals if s.get("confidence", 0) > 0.2]
+        signal_values = [s.get("signal", 0) for s in confident]
         agreement = 0.0
         divergence = 0.0
         weighted_avg = 0.0
@@ -155,7 +156,9 @@ class FeatureEngine:
             agreement = max(bullish, bearish) / total if total > 0 else 0
             divergence = float(np.std(signal_values))
 
-            weights = [s.get("confidence", 0) for s in signals]
+            # Same filtered list as signal_values: zipping against all signals
+            # paired each value with some other collector's confidence
+            weights = [s.get("confidence", 0) for s in confident]
             if sum(weights) > 0:
                 weighted_avg = sum(v * w for v, w in zip(signal_values, weights)) / sum(weights)
 
@@ -573,31 +576,53 @@ class StockPredictor:
         # Handle NaN/inf
         X = np.nan_to_num(X, nan=0.0, posinf=1.0, neginf=-1.0)
 
-        # Scale features
-        X = self.scaler.fit_transform(X)
+        # Callers weight sources by repeating rows (verified 5-day x3, intraday
+        # x2) and the historical file is appended to on every regeneration.
+        # Cross-validating on that scores folds made of copies of training
+        # rows, so CV runs on the first occurrence of each distinct row only;
+        # the final fit still sees every row, keeping the weighting.
+        cv_idx = self._unique_row_indices(X, y)
+        Xu, yu = X[cv_idx], y[cv_idx]
+        if len(cv_idx) < len(X):
+            logger.info(f"CV on {len(cv_idx)} distinct samples ({len(X) - len(cv_idx)} repeats excluded)")
 
-        # Time-series cross-validation
         tscv = TimeSeriesSplit(n_splits=5)
+        folds = list(tscv.split(Xu)) if len(Xu) >= 10 else []
+
+        # Majority class of each training fold, scored on its validation fold:
+        # the number a model has to beat for its CV accuracy to mean anything
+        if folds:
+            base = [np.mean(yu[va] == np.bincount(yu[tr], minlength=3).argmax()) for tr, va in folds]
+            logger.info(f"Baseline (majority class): CV accuracy = {np.mean(base):.3f}")
 
         for name, model in self.models.items():
             scores = []
-            for train_idx, val_idx in tscv.split(X):
-                X_train, X_val = X[train_idx], X[val_idx]
-                y_train, y_val = y[train_idx], y[val_idx]
+            for train_idx, val_idx in folds:
+                fold_scaler = StandardScaler().fit(Xu[train_idx])   # no peeking at the fold
+                model.fit(fold_scaler.transform(Xu[train_idx]), yu[train_idx])
+                scores.append(model.score(fold_scaler.transform(Xu[val_idx]), yu[val_idx]))
+            if scores:
+                logger.info(f"Model {name}: CV accuracy = {np.mean(scores):.3f}")
 
-                model.fit(X_train, y_train)
-                score = model.score(X_val, y_val)
-                scores.append(score)
-
-            avg_score = np.mean(scores)
-            logger.info(f"Model {name}: CV accuracy = {avg_score:.3f}")
-
-            # Final fit on all data
+        # Final fit on all data
+        X = self.scaler.fit_transform(X)
+        for model in self.models.values():
             model.fit(X, y)
 
         self.is_trained = True
         self._save_models()
         logger.info("All models trained and saved")
+
+    @staticmethod
+    def _unique_row_indices(X: "np.ndarray", y: "np.ndarray") -> "np.ndarray":
+        """Indices of the first occurrence of each distinct (features, label) row, in order."""
+        seen, keep = set(), []
+        for i in range(len(X)):
+            key = (X[i].tobytes(), int(y[i]))
+            if key not in seen:
+                seen.add(key)
+                keep.append(i)
+        return np.array(keep, dtype=int)
 
     def _get_feature_importance(self) -> Dict:
         """Get feature importance from Random Forest."""
