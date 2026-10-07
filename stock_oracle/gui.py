@@ -3516,7 +3516,7 @@ class StockOracleGUI:
         add_field("CLAUDE_MONTHLY_CAP", "Monthly Spending Cap ($)",
                    "Hard limit on API costs per month (default: 10.00)")
         add_field("CLAUDE_MODEL", "Claude Model",
-                   "claude-haiku-4-5-20251001 (cheap) or claude-sonnet-4-20250514 (smart)")
+                   "claude-haiku-4-5-20251001 (default), claude-haiku-5-5 (cheapest), claude-sonnet-5-5 (smart)")
 
         # Show current Claude usage
         try:
