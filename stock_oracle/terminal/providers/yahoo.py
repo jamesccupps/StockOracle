@@ -56,6 +56,14 @@ def _num(v) -> Optional[float]:
     return None if math.isnan(f) or math.isinf(f) else f
 
 
+def _expense_ratio(info: Dict) -> Optional[float]:
+    """As a fraction, like every other ratio here. Yahoo's netExpenseRatio is
+    in percent (SPY 0.0945 = 0.0945%); the older annualReportExpenseRatio and
+    the funds_data figure used by HOLD are already fractions."""
+    net = _num(info.get("netExpenseRatio"))
+    return net / 100 if net is not None else _num(info.get("annualReportExpenseRatio"))
+
+
 def _int(v) -> Optional[int]:
     f = _num(v)
     return int(f) if f is not None else None
@@ -278,7 +286,7 @@ def profile(sym: str) -> Dict:
             "div_rate": div_rate,
             "div_yield_pct": div_yield,
             "payout_ratio": _num(i.get("payoutRatio")),
-            "expense_ratio": _num(i.get("netExpenseRatio") or i.get("annualReportExpenseRatio")),
+            "expense_ratio": _expense_ratio(i),
             "hi_52w": _num(i.get("fiftyTwoWeekHigh")),
             "lo_52w": _num(i.get("fiftyTwoWeekLow")),
             "ma_50": _num(i.get("fiftyDayAverage")),
