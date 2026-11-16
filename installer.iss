@@ -3,7 +3,7 @@
 ; Requires: Inno Setup 6+ (https://jrsoftware.org/isinfo.php)
 
 #define MyAppName "Stock Oracle"
-#define MyAppVersion "1.2.0"
+#define MyAppVersion "1.2.1"
 #define MyAppPublisher "James Cupps"
 #define MyAppExeName "StockOracle.exe"
 
