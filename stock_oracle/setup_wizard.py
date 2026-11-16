@@ -20,7 +20,7 @@ from stock_oracle.utils.atomic import write_text_atomic
 from stock_oracle.utils.envfile import read_env, save_env
 
 from stock_oracle.config import (
-    BASE_DIR, DATA_DIR, WATCHLIST, FINNHUB_API_KEY,
+    BASE_DIR, DATA_DIR, ENV_FILE, WATCHLIST, FINNHUB_API_KEY,
     BG_DARK, BG_PANEL, BG_CARD, BG_INPUT,
     FG_PRIMARY, FG_SECONDARY, FG_DIM,
     GREEN, RED, AMBER, BLUE, PURPLE, ACCENT, BORDER,
@@ -77,7 +77,7 @@ class SetupWizard:
         # Start from what's already in .env (a user who copied .env.example
         # and filled it in, or a reinstall that lost data/.setup_complete),
         # so the boxes show it and saving doesn't wipe it
-        self.settings: Dict[str, str] = read_env(BASE_DIR / ".env")
+        self.settings: Dict[str, str] = read_env(ENV_FILE)
         self.watchlist: List[str] = _existing_watchlist() or list(WATCHLIST)
         self.current_step = 0
         self.completed = False
@@ -628,8 +628,8 @@ class SetupWizard:
     def _save_all_settings(self):
         """Write settings to .env file."""
         # Merge, never overwrite: keys the wizard doesn't show (TERMINAL_*,
-        # Reddit, GitHub...) survive. BASE_DIR is where config.py reads it.
-        save_env(BASE_DIR / ".env", self.settings,
+        # Reddit, GitHub...) survive. ENV_FILE is where config.py reads it.
+        save_env(ENV_FILE, self.settings,
                  datetime.now().strftime('%Y-%m-%d %H:%M:%S'), source="Setup Wizard")
 
         # The file the GUI and the terminal read (it was watchlist.json, which

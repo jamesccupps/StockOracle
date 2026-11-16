@@ -28,8 +28,10 @@ Optional API keys (all free):
   - Reddit (reddit.com/prefs/apps) — social sentiment
   - SEC EDGAR — just needs your email
 
-Your data (predictions, settings, ML models) is stored separately
-from the app, so updates never lose your data.
+Your data (predictions, settings including API keys, ML models) is
+stored in %APPDATA%\StockOracle, separately from the app, so updates
+never lose it. Uninstalling leaves that folder in place; delete it to
+remove your data and keys.
 
 DISCLAIMER: This is a research and educational tool. It is NOT
 financial advice. No algorithm can predict the stock market with

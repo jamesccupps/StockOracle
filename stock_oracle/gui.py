@@ -28,7 +28,7 @@ import os
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from stock_oracle.config import (
-    WATCHLIST, DATA_DIR, CACHE_DIR, MODEL_DIR, PREDICTION_HORIZON_DAYS,
+    WATCHLIST, DATA_DIR, CACHE_DIR, MODEL_DIR, PREDICTION_HORIZON_DAYS, ENV_FILE,
     BG_DARK, BG_PANEL, BG_CARD, BG_INPUT,
     FG_PRIMARY, FG_SECONDARY, FG_DIM,
     GREEN, RED, AMBER, BLUE, PURPLE, BORDER, ACCENT,
@@ -3671,7 +3671,7 @@ class StockOracleGUI:
     def _load_settings(self) -> Dict:
         """Load settings from .env file."""
         settings = {}
-        env_path = Path(__file__).parent / ".env"
+        env_path = ENV_FILE   # config decides: package dir, or the data folder when frozen
 
         # Load from .env file (read_env strips a byte-order mark)
         settings.update(read_env(env_path))
@@ -3703,7 +3703,7 @@ class StockOracleGUI:
 
     def _save_settings(self, settings: Dict):
         """Save settings to .env file and apply to environment."""
-        env_path = Path(__file__).parent / ".env"
+        env_path = ENV_FILE   # config decides: package dir, or the data folder when frozen
         save_env(env_path, settings, datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
         self._log(f"Settings saved to {env_path}")
 

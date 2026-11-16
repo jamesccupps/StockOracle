@@ -25,7 +25,7 @@ import stock_oracle.config as cfg
 
 PACKAGE_DIR = Path(cfg.BASE_DIR)
 REPO_DIR = PACKAGE_DIR.parent
-ENV_FILE = PACKAGE_DIR / ".env"
+ENV_FILE = Path(cfg.ENV_FILE)   # same file the GUI writes (data folder when frozen)
 STATIC_DIR = Path(__file__).parent / "static"
 
 # Shared with the GUI so both apps edit one watchlist

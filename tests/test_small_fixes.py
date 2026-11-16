@@ -49,3 +49,30 @@ def test_gui_watchlist_loader_rejects_non_lists(tmp_path, monkeypatch):
     fake = types.SimpleNamespace(watchlist=["DEFAULT"], msg_queue=queue.Queue())
     gui.StockOracleGUI._load_watchlist(fake)
     assert fake.watchlist == ["NVDA", "SCHD"]
+
+
+def test_env_file_location(tmp_path):
+    from stock_oracle.config import _resolve_env_file
+    pkg, data = tmp_path / "pkg", tmp_path / "appdata"
+    pkg.mkdir()
+    data.mkdir()
+    # source checkout: next to the code, as the README says
+    assert _resolve_env_file(pkg, data, data_override=False) == pkg / ".env"
+    # frozen build (data folder override): in the data folder
+    assert _resolve_env_file(pkg, data, data_override=True) == data / ".env"
+    # an older build's .env inside the program folder is moved there once
+    (pkg / ".env").write_text("FINNHUB_API_KEY=old\n")
+    assert _resolve_env_file(pkg, data, data_override=True) == data / ".env"
+    assert (data / ".env").read_text() == "FINNHUB_API_KEY=old\n"
+    assert not (pkg / ".env").exists()
+    # never overwrites an existing data-folder .env
+    (pkg / ".env").write_text("FINNHUB_API_KEY=stale\n")
+    assert _resolve_env_file(pkg, data, data_override=True) == data / ".env"
+    assert (data / ".env").read_text() == "FINNHUB_API_KEY=old\n"
+
+
+def test_every_env_reader_uses_config_env_file():
+    from pathlib import Path
+    pkg = Path(__file__).resolve().parent.parent / "stock_oracle"
+    for f in ("gui.py", "setup_wizard.py", "terminal/settings.py"):
+        assert '/ ".env"' not in (pkg / f).read_text(encoding="utf-8"), f

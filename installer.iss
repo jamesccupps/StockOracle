@@ -45,7 +45,9 @@ Name: "{userstartup}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: st
 Filename: "{app}\{#MyAppExeName}"; Description: "Launch Stock Oracle"; Flags: nowait postinstall skipifsilent
 
 [UninstallDelete]
-Type: filesandordirs; Name: "{app}\stock_oracle\cache"
+; A .env left inside the program folder by older builds (current builds
+; keep it in {userappdata}\StockOracle, which uninstall leaves alone)
+Type: files; Name: "{app}\_internal\stock_oracle\.env"
 
 [Code]
 procedure CurPageChanged(CurPageID: Integer);
@@ -59,6 +61,7 @@ begin
       '  - Setting up your stock watchlist' + #13#10 +
       '  - Training the machine learning model' + #13#10 + #13#10 +
       'Click the Help button inside the app anytime for a full guide.' + #13#10 + #13#10 +
-      'Your data is stored in: ' + ExpandConstant('{userappdata}\StockOracle');
+      'Your data and API keys are stored in: ' + ExpandConstant('{userappdata}\StockOracle') + #13#10 +
+      'Uninstalling keeps that folder; delete it to remove them.';
   end;
 end;

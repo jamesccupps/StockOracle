@@ -167,7 +167,7 @@ echo   2. Finnhub: free at finnhub.io (real-time prices^)
 echo   3. Anthropic: console.anthropic.com (AI advisor, optional^)
 echo   4. Click "Start Monitoring" to begin
 echo.
-echo Your data is stored in: %%APPDATA%%\StockOracle\
+echo Your data and API keys are stored in: %%APPDATA%%\StockOracle\
 echo This means you can update the app without losing your
 echo predictions, sessions, ML models, or settings.
 echo.

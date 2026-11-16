@@ -3,6 +3,7 @@ Stock Oracle Configuration
 ==========================
 """
 import os
+import shutil
 import sys
 from pathlib import Path
 
@@ -24,7 +25,30 @@ for d in [DATA_DIR, CACHE_DIR, MODEL_DIR]:
     d.mkdir(parents=True, exist_ok=True)
 
 # ── Load .env file (saved by GUI Settings) ─────────────────────
-_env_file = BASE_DIR / ".env"
+
+def _resolve_env_file(base_dir: Path, data_dir: Path, data_override: bool) -> Path:
+    """
+    Where .env lives. From a source checkout: stock_oracle/.env, as the
+    README says. With a data-folder override (the frozen build's launcher
+    sets one to %APPDATA%\\StockOracle), it goes there with the rest of the
+    user's data, not inside the program folder, which uninstall/updates own.
+    A copy left in the program folder by an older build is moved once.
+    """
+    legacy = base_dir / ".env"
+    if not data_override:
+        return legacy
+    target = data_dir / ".env"
+    if not target.exists() and legacy.exists():
+        try:
+            shutil.copy2(legacy, target)
+            legacy.unlink()
+        except OSError:
+            return target if target.exists() else legacy
+    return target
+
+
+ENV_FILE = _resolve_env_file(BASE_DIR, DATA_DIR, bool(_data_override))
+_env_file = ENV_FILE
 if _env_file.exists():
     try:
         # utf-8-sig: a byte-order mark (PowerShell 5.1's -Encoding utf8, Notepad's

@@ -24,6 +24,7 @@ def wizard(tmp_path, monkeypatch):
     base.mkdir()
     (base / ".env").write_text(EXISTING, encoding="utf-8")
     monkeypatch.setattr(sw, "BASE_DIR", base)
+    monkeypatch.setattr(sw, "ENV_FILE", base / ".env")
     monkeypatch.setattr(sw, "DATA_DIR", data)
     monkeypatch.setattr(sw, "SETUP_FLAG", data / ".setup_complete")
     w = sw.SetupWizard()
