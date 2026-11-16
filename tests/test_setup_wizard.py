@@ -16,10 +16,6 @@ EXISTING = (
 
 @pytest.fixture
 def wizard(tmp_path, monkeypatch):
-    try:
-        tk.Tk().destroy()
-    except tk.TclError:
-        pytest.skip("no display for Tk")
     base, data = tmp_path / "pkg", tmp_path / "data"
     base.mkdir()
     (base / ".env").write_text(EXISTING, encoding="utf-8")
@@ -27,12 +23,15 @@ def wizard(tmp_path, monkeypatch):
     monkeypatch.setattr(sw, "ENV_FILE", base / ".env")
     monkeypatch.setattr(sw, "DATA_DIR", data)
     monkeypatch.setattr(sw, "SETUP_FLAG", data / ".setup_complete")
-    w = sw.SetupWizard()
+    try:
+        w = sw.SetupWizard()
+    except tk.TclError as e:          # no display (headless runner)
+        pytest.skip(f"Tk unavailable: {e}")
     yield w, base, data
     try:
-        w.root.destroy()
+        w._close()
     except tk.TclError:
-        pass
+        pass                          # already closed by the test (Skip)
 
 
 def test_wizard_starts_from_existing_env(wizard):
