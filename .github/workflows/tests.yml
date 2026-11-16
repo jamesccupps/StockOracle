@@ -28,4 +28,22 @@ jobs:
       - name: Resolved versions
         run: python -m pip freeze
       - name: Test
-        run: python -m pytest -q
+        run: python -m pytest -q --junitxml=pytest-report.xml
+      # Failing tests as annotations, so they show on the run's summary page
+      # (and in the public API) without opening the log
+      - name: Report failures
+        if: failure()
+        shell: python
+        run: |
+          import xml.etree.ElementTree as ET
+          def esc(s):
+              return s.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+          for case in ET.parse("pytest-report.xml").getroot().iter("testcase"):
+              for kind in ("failure", "error"):
+                  el = case.find(kind)
+                  if el is None:
+                      continue
+                  lines = (el.text or "").strip().splitlines()
+                  detail = "\n".join(lines[-25:])[:3000]
+                  name = f"{case.get('classname')}.{case.get('name')} ({kind})"
+                  print(f"::error title={esc(name)}::{esc((el.get('message') or '')[:500] + chr(10) + detail)}")

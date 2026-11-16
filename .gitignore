@@ -52,3 +52,6 @@ desktop.ini
 # ── Misc ──
 *.zip
 *.bak
+
+# CI test report
+pytest-report.xml
