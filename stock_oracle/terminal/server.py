@@ -15,7 +15,7 @@ import json
 import logging
 import secrets
 from contextlib import asynccontextmanager
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 from urllib.parse import urlsplit
 
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
@@ -32,12 +32,42 @@ logger = logging.getLogger("stock_oracle.terminal")
 
 COOKIE = "so_terminal"
 
+# Every watchlist ticker costs upstream requests on each poll
+MAX_WATCHLIST = 200
+MAX_QUESTION = 2000
+MAX_SCREEN_TEXT = 3000
+
 
 def _sym(raw: str) -> str:
     sym = S.normalize(raw)
     if not S.is_valid(sym):
         raise HTTPException(400, f"Not a valid symbol: {raw!r}")
     return sym
+
+
+def _sym_list(value, field: str) -> List[str]:
+    """A JSON list of ticker strings, validated; 400 otherwise. A bare string
+    would otherwise be iterated letter by letter into one-letter tickers."""
+    if value is None:
+        return []
+    if not isinstance(value, list) or not all(isinstance(t, str) for t in value):
+        raise HTTPException(400, f"'{field}' must be a list of ticker strings")
+    if len(value) > MAX_WATCHLIST:
+        raise HTTPException(400, f"'{field}' has more than {MAX_WATCHLIST} tickers")
+    return [_sym(t) for t in value]
+
+
+def _clean_screen(screen) -> Dict:
+    """Keep only what _ask_context reads, with the types it expects."""
+    if not isinstance(screen, dict):
+        raise HTTPException(400, "'screen' must be an object")
+    panels = screen.get("panels") if isinstance(screen.get("panels"), list) else []
+    text = screen.get("text") if isinstance(screen.get("text"), str) else ""
+    return {
+        "panels": [{"fn": str(p.get("fn") or "")[:12], "sym": str(p.get("sym") or "")[:12]}
+                   for p in panels[:6] if isinstance(p, dict)],
+        "text": text[:MAX_SCREEN_TEXT],
+    }
 
 
 def _host_only(host_header: str) -> str:
@@ -163,13 +193,14 @@ def create_app(token: Optional[str] = None,
     async def edit_watchlist(body: Dict):
         current = settings.load_watchlist()
         if "set" in body:
-            current = [_sym(t) for t in body["set"]]
-        for t in body.get("add", []):
-            sym = _sym(t)
+            current = _sym_list(body["set"], "set")
+        for sym in _sym_list(body.get("add"), "add"):
             if sym not in current:
                 current.append(sym)
-        drop = {_sym(t) for t in body.get("remove", [])}
+        drop = set(_sym_list(body.get("remove"), "remove"))
         current = [t for t in current if t not in drop]
+        if len(current) > MAX_WATCHLIST:
+            raise HTTPException(400, f"The watchlist is limited to {MAX_WATCHLIST} tickers")
         return {"tickers": settings.save_watchlist(current)}
 
     # ── market data ──────────────────────────────────────────
@@ -272,12 +303,17 @@ def create_app(token: Optional[str] = None,
 
     @app.post("/api/ask")
     async def ask(body: Dict):
-        question = (body.get("question") or "").strip()
-        if not question:
+        question = body.get("question")
+        if not isinstance(question, str) or not question.strip():
             raise HTTPException(400, "Ask a question, e.g.  ASK why is NVDA bearish today?")
+        question = question.strip()
+        if len(question) > MAX_QUESTION:
+            raise HTTPException(400, f"Questions are limited to {MAX_QUESTION} characters")
         focus = body.get("symbol")
+        if focus is not None and not isinstance(focus, str):
+            raise HTTPException(400, "'symbol' must be a string")
         focus = _sym(focus) if focus else None
-        screen = body.get("screen") or {}
+        screen = _clean_screen(body.get("screen") or {})
         if focus and hub.get(focus):
             from stock_oracle.terminal.quotes import _compact
             screen["quote"] = _compact(hub.get(focus))
@@ -371,9 +407,11 @@ def create_app(token: Optional[str] = None,
                     msg = json.loads(raw)
                 except json.JSONDecodeError:
                     continue
+                if not isinstance(msg, dict):
+                    continue    # valid JSON but not an object: ignore, don't drop the socket
                 op = msg.get("op")
-                if op == "sub":
-                    hub.set_subs(client, msg.get("symbols") or [])
+                if op == "sub" and isinstance(msg.get("symbols"), list):
+                    hub.set_subs(client, msg["symbols"])
                 elif op == "ping":
                     client.push({"t": "pong"})
         except WebSocketDisconnect:
