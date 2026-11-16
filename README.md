@@ -17,7 +17,7 @@ A multi-signal stock prediction and monitoring system for Windows: 39 data colle
 - **Market Regime Detection** — Identifies broad market selloffs/rallies from SPY + sector breadth and shifts all predictions accordingly
 - **Breakout Scanner** — Scores stocks 0-100 on breakout probability using 8 technical patterns with estimated timeframes
 - **News Feed** — Finnhub-powered per-stock and watchlist-wide news with recency weighting (breaking news counts 3x) and clickable article links
-- **Claude AI Advisor** — Optional Anthropic API integration for periodic weight adjustments, pattern detection and session reviews, under a hard monthly spending cap shared by the GUI and the terminal
+- **Claude AI Advisor** — Optional Anthropic API integration for periodic weight adjustments, pattern detection and session reviews, under a hard monthly spending cap shared by the GUI and the terminal. While monitoring it checks in every 30 minutes
 - **Built-in Help Guide** — 8-section help system explaining every feature
 
 ## Quick Start
@@ -46,7 +46,7 @@ BUILD.bat
 # Output: dist/StockOracle/StockOracle.exe (no Python needed to run)
 ```
 
-The build bundles source files only. Your `stock_oracle/.env`, `data/`, `cache/` and `models/` stay out, and the script refuses to finish if any of them turn up in `dist`. A frozen build keeps its data in `%APPDATA%\StockOracle`.
+The build bundles source files only. Your `stock_oracle/.env`, `data/`, `cache/` and `models/` stay out, and the script refuses to finish if any of them turn up in `dist`. A frozen build keeps its data, and its `.env` with your API keys, in `%APPDATA%\StockOracle`; uninstalling leaves that folder in place.
 
 ## Oracle Terminal
 
@@ -105,14 +105,15 @@ Type a ticker to load it into every linked panel, then a function code. `NVDA BR
 | SEC EDGAR | Just your email | Free | Filing analysis |
 | GitHub | [github.com/settings/tokens](https://github.com/settings/tokens) | Free | Avoids rate limits |
 
-Or skip all of this — the Settings dialog in the app lets you add keys through the GUI. Saving there keeps any other keys already in `.env`, such as the `TERMINAL_*` options.
+Or skip all of this — the first-run wizard and the Settings dialog let you add keys through the GUI. Both start from what's already in `.env` and keep the keys they don't show, such as the `TERMINAL_*` options; skipping the wizard leaves the file untouched.
 
 ## Security notes
 
-- Keys live in plain text in `stock_oracle/.env`, which is gitignored and excluded from builds. Treat that file like a password.
+- Keys live in plain text in `.env`: `stock_oracle/.env` in a source checkout, `%APPDATA%\StockOracle\.env` in the installed app. It is gitignored and excluded from builds. Treat it like a password.
 - Broker integration is read-only. `brokers.py` can stream quotes and read portfolios, but has no code path that places, changes or cancels an order, and a test enforces that.
-- The terminal requires an access token even on localhost. Use `--lan` over Tailscale or another encrypted link; it serves plain HTTP.
+- The terminal requires an access token even on localhost, checks the `Host` header there, and refuses state-changing requests a browser marks as coming from another origin (another local port included). Use `--lan` over Tailscale or another encrypted link; it serves plain HTTP.
 - Finnhub REST calls send the key in a header rather than the URL (only the websocket, which requires it, puts it in the URL), and query-string keys such as FRED's are scrubbed from logged request errors.
+- Headlines, filings and other outside text reach Claude and the local Ollama model quoted or fenced, under a system rule that it is data, never instructions.
 
 ## Screenshots
 
@@ -194,7 +195,8 @@ StockOracle/
 │       ├── sessions/              # Monitoring session data
 │       ├── gui_watchlist.json     # Watchlist shared by the GUI and the terminal
 │       ├── claude_usage.json      # Monthly Claude spend
-│       └── terminal_token.txt     # Terminal access token
+│       ├── terminal_token.txt     # Terminal access token
+│       └── stock_oracle.log       # App log (rotated at 5 MB, 3 kept)
 ├── tests/                         # pytest suite
 ├── docs/                          # README images
 └── .github/workflows/tests.yml    # CI: Windows, Python 3.11-3.13
