@@ -27,9 +27,14 @@ from typing import Dict, List, Optional, Tuple
 
 from stock_oracle.config import DATA_DIR, PREDICTION_HORIZON_DAYS
 
+from stock_oracle.utils.atomic import write_text_atomic
+from stock_oracle.utils.filelock import file_lock
+
 logger = logging.getLogger("stock_oracle")
 
 PREDICTIONS_DIR = DATA_DIR / "predictions"
+# Guards pending_*.jsonl: the GUI and the terminal both append, and verify_pending rewrites
+PENDING_LOCK = PREDICTIONS_DIR / ".pending.lock"
 PREDICTIONS_DIR.mkdir(exist_ok=True)
 
 VERIFIED_FILE = PREDICTIONS_DIR / "verified.jsonl"
@@ -110,8 +115,9 @@ class PredictionTracker:
 
         try:
             PREDICTIONS_DIR.mkdir(parents=True, exist_ok=True)
-            with open(pending_file, "a", encoding="utf-8") as f:
-                f.write(json.dumps(record, default=str) + "\n")
+            with file_lock(PENDING_LOCK):
+                with open(pending_file, "a", encoding="utf-8") as f:
+                    f.write(json.dumps(record, default=str) + "\n")
         except Exception as e:
             logger.error(f"Failed to record prediction for {ticker}: {e}")
 
@@ -178,7 +184,8 @@ class PredictionTracker:
 
         for pending_file in pending_files:
             remaining = []  # Predictions not yet ready to verify
-            
+            done = set()    # Lines verified or discarded: dropped from the file
+
             try:
                 with open(pending_file, "r", encoding="utf-8") as f:
                     lines = f.readlines()
@@ -206,6 +213,7 @@ class PredictionTracker:
 
                 if not ticker or pred_price <= 0:
                     stats["skipped"] += 1
+                    done.add(line)
                     continue
 
                 try:
@@ -218,6 +226,7 @@ class PredictionTracker:
                     # Score the prediction
                     verified = self._score_prediction(record, actual_price)
                     self._save_verified(verified)
+                    done.add(line)
                     
                     stats["verified"] += 1
                     if verified["correct"]:
@@ -230,16 +239,24 @@ class PredictionTracker:
                     remaining.append(line)  # Retry later
                     stats["skipped"] += 1
 
-            # Rewrite pending file with only unverified predictions
-            if remaining:
-                with open(pending_file, "w", encoding="utf-8") as f:
-                    f.writelines(remaining)
-            else:
-                # All verified — delete the pending file
+            # Drop what was handled. Re-read under the lock first: the other
+            # process (GUI or terminal) may have appended a prediction while
+            # prices were being fetched, and rewriting from the earlier read
+            # lost it.
+            with file_lock(PENDING_LOCK):
                 try:
-                    pending_file.unlink()
-                except Exception:
-                    pass
+                    with open(pending_file, "r", encoding="utf-8") as f:
+                        current = f.readlines()
+                except OSError:
+                    current = []
+                keep = [ln for ln in current if ln not in done]
+                if keep:
+                    write_text_atomic(pending_file, "".join(keep))
+                else:
+                    try:
+                        pending_file.unlink()
+                    except OSError:
+                        pass
 
         # Update accuracy stats
         self._update_accuracy_stats(stats)
@@ -339,7 +356,7 @@ class PredictionTracker:
             existing["accuracy_pct"] = 0
 
         try:
-            ACCURACY_FILE.write_text(json.dumps(existing, indent=2))
+            write_text_atomic(ACCURACY_FILE, json.dumps(existing, indent=2))
         except Exception:
             pass
 

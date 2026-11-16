@@ -39,6 +39,7 @@ from stock_oracle.config import (
 CLAUDE_CHECKIN_SECONDS = 30 * 60
 
 # .env reading/merging is shared with the setup wizard
+from stock_oracle.utils.atomic import write_text_atomic
 from stock_oracle.utils.envfile import RETIRED_ENV_KEYS, merge_env, read_env, save_env  # noqa: F401
 
 
@@ -621,9 +622,8 @@ class StockOracleGUI:
         self._show_details(ticker)
 
     def _save_watchlist(self):
-        path = DATA_DIR / "gui_watchlist.json"
-        path.parent.mkdir(exist_ok=True)
-        path.write_text(json.dumps(self.watchlist))
+        # Atomic: the terminal reads (and edits) this file too
+        write_text_atomic(DATA_DIR / "gui_watchlist.json", json.dumps(self.watchlist))
 
     def _load_watchlist(self):
         path = DATA_DIR / "gui_watchlist.json"

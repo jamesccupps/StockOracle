@@ -373,7 +373,7 @@ class OracleBridge:
         text = await asyncio.to_thread(adv.ask_question, question, verdicts, context)
         if text is None:
             raise ValueError("Claude didn't answer (API error or the monthly cap would be exceeded). "
-                             "See stock_oracle.log for details.")
+                             "See the terminal console for details.")
         return {"answer": text, "status": adv.get_status()}
 
     def _ask_context(self, focus: Optional[str], screen: Dict) -> str:

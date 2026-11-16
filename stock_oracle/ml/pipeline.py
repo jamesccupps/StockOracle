@@ -18,6 +18,8 @@ from stock_oracle.config import (
     LOOKBACK_DAYS, SIGNAL_WEIGHTS, ENSEMBLE_MODELS,
 )
 
+from stock_oracle.utils.atomic import write_bytes_atomic
+
 logger = logging.getLogger("stock_oracle")
 
 # Try to import ML libraries
@@ -645,13 +647,14 @@ class StockPredictor:
     def _save_models(self):
         """Save trained models to disk."""
         save_path = MODEL_DIR / "ensemble_models.pkl"
-        with open(save_path, "wb") as f:
-            pickle.dump({
-                "models": self.models,
-                "scaler": self.scaler,
-                "feature_names": self.feature_engine.feature_names,
-                "trained_at": datetime.now(timezone.utc).isoformat(),
-            }, f)
+        # Atomic: a crash or the other process (GUI/terminal) mid-write left
+        # a truncated pickle that load_models rejects, so the app ran untrained
+        write_bytes_atomic(save_path, pickle.dumps({
+            "models": self.models,
+            "scaler": self.scaler,
+            "feature_names": self.feature_engine.feature_names,
+            "trained_at": datetime.now(timezone.utc).isoformat(),
+        }))
         logger.info(f"Models saved to {save_path}")
 
     def load_models(self) -> bool:

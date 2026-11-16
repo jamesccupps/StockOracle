@@ -32,6 +32,7 @@ logger = logging.getLogger("stock_oracle")
 from stock_oracle.config import DATA_DIR  # noqa: E402
 
 INTELLIGENCE_FILE = Path(DATA_DIR) / "signal_intelligence.json"
+from stock_oracle.utils.atomic import write_text_atomic  # noqa: E402
 
 # ── Configuration ─────────────────────────────────────────────
 # How many consecutive identical readings before a signal is "stale"
@@ -367,7 +368,7 @@ class SignalIntelligence:
                 "signal_means": dict(self._signal_means),
                 "stats": self._stats,
             }
-            with open(INTELLIGENCE_FILE, "w") as f:
-                json.dump(data, f, indent=2)
+            # Atomic: the GUI and the terminal both save this file
+            write_text_atomic(INTELLIGENCE_FILE, json.dumps(data, indent=2))
         except Exception as e:
             logger.error(f"Failed to save signal intelligence: {e}")

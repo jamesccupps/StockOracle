@@ -16,6 +16,7 @@ Usage:
 """
 import json
 import logging
+from logging.handlers import RotatingFileHandler
 import sys
 import io
 from datetime import datetime, timezone
@@ -28,12 +29,19 @@ _stdout_handler = logging.StreamHandler(
     io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
     if hasattr(sys.stdout, "buffer") else sys.stdout
 )
+# In the data folder, not the working directory, and rotated: monitoring logs
+# every signal of every ticker each scan (tens of MB a day). Only the GUI and
+# CLI get this handler; the terminal configures console logging first, which
+# makes this basicConfig a no-op there, so one process owns the file.
+from stock_oracle.config import DATA_DIR as _DATA_DIR  # noqa: E402
+LOG_FILE = Path(_DATA_DIR) / "stock_oracle.log"
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
     handlers=[
         _stdout_handler,
-        logging.FileHandler("stock_oracle.log", encoding="utf-8"),
+        RotatingFileHandler(LOG_FILE, maxBytes=5_000_000, backupCount=3,
+                            encoding="utf-8", delay=True),
     ],
 )
 logger = logging.getLogger("stock_oracle")

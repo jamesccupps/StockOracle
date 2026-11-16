@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Optional
 
 from stock_oracle.config import CACHE_DIR
+from stock_oracle.utils.atomic import write_text_atomic
 
 logger = logging.getLogger("stock_oracle")
 
@@ -51,7 +52,7 @@ def _load_cache() -> dict:
 def _save_cache():
     """Persist name cache to disk."""
     if _name_cache is not None:
-        NAMES_CACHE_FILE.write_text(json.dumps(_name_cache, indent=2))
+        write_text_atomic(NAMES_CACHE_FILE, json.dumps(_name_cache, indent=2))
 
 
 def _lookup_yfinance(ticker: str) -> Optional[str]:
