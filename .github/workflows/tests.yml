@@ -28,22 +28,37 @@ jobs:
       - name: Resolved versions
         run: python -m pip freeze
       - name: Test
-        run: python -m pytest -q --junitxml=pytest-report.xml
+        # bash on the Windows runner: -o pipefail keeps pytest's exit code
+        # through tee, and the full output is kept for the report step
+        shell: bash
+        run: python -m pytest -q -rfE --junitxml=pytest-report.xml 2>&1 | tee pytest-output.txt
       # Failing tests as annotations, so they show on the run's summary page
       # (and in the public API) without opening the log
       - name: Report failures
         if: failure()
         shell: python
         run: |
+          import os, sys
           import xml.etree.ElementTree as ET
+          sys.stdout.reconfigure(encoding="utf-8", errors="replace")
           def esc(s):
               return s.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
-          for case in ET.parse("pytest-report.xml").getroot().iter("testcase"):
-              for kind in ("failure", "error"):
-                  el = case.find(kind)
-                  if el is None:
-                      continue
-                  lines = (el.text or "").strip().splitlines()
-                  detail = "\n".join(lines[-25:])[:3000]
-                  name = f"{case.get('classname')}.{case.get('name')} ({kind})"
-                  print(f"::error title={esc(name)}::{esc((el.get('message') or '')[:500] + chr(10) + detail)}")
+          emitted = 0
+          if os.path.exists("pytest-report.xml"):
+              for case in ET.parse("pytest-report.xml").getroot().iter("testcase"):
+                  for kind in ("failure", "error"):
+                      el = case.find(kind)
+                      if el is None:
+                          continue
+                      lines = (el.text or "").strip().splitlines()
+                      detail = "\n".join(lines[-25:])[:3000]
+                      name = f"{case.get('classname')}.{case.get('name')} ({kind})"
+                      print(f"::error title={esc(name)}::{esc((el.get('message') or '')[:500] + chr(10) + detail)}")
+                      emitted += 1
+          if not emitted:
+              # No per-test failure recorded (pytest crashed, or failed outside a test)
+              tail = ["(no pytest output captured)"]
+              if os.path.exists("pytest-output.txt"):
+                  with open("pytest-output.txt", encoding="utf-8", errors="replace") as f:
+                      tail = f.read().splitlines()[-60:]
+              print(f"::error title=pytest output tail::{esc(chr(10).join(tail)[-4000:])}")

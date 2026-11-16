@@ -55,3 +55,4 @@ desktop.ini
 
 # CI test report
 pytest-report.xml
+pytest-output.txt
