@@ -29,3 +29,25 @@ def test_text_extracted_from_text_blocks(content, expected):
     adv = ca.ClaudeAdvisor(api_key="x", model="claude-opus-5-5", monthly_cap=10.0)
     adv._client = _client(content)
     assert adv._call_api("s", "q", "t", 500) == expected
+
+
+def test_sdk_retries_are_off():
+    # The spend tracker reserves one call; an SDK-internal retry could be billed twice
+    adv = ca.ClaudeAdvisor(api_key="sk-ant-test", monthly_cap=10.0)
+    assert adv._get_client().max_retries == 0
+
+
+def test_gui_checkin_is_paced_by_the_clock_not_scan_count(monkeypatch):
+    import types
+    from stock_oracle import gui
+    clock = [1000.0]
+    monkeypatch.setattr(gui.time, "monotonic", lambda: clock[0])
+    fake = types.SimpleNamespace(_last_claude_checkin=1000.0)
+    due = lambda: gui.StockOracleGUI._claude_checkin_due(fake)
+    # 40 s scans for 29 minutes: no check-in (scan-count pacing fired every 6 scans = 4 min)
+    for _ in range(int(29 * 60 / 40)):
+        clock[0] += 40
+        assert not due()
+    clock[0] = 1000.0 + 30 * 60
+    assert due()                    # 30 min reached
+    assert not due()                # and the clock restarted

@@ -33,6 +33,10 @@ from stock_oracle.config import (
     GREEN, RED, AMBER, BLUE, PURPLE, BORDER, ACCENT,
 )
 
+# Claude check-in cadence while monitoring, by the clock: counting scans made
+# it every 4 minutes at a 40 s scan interval (~15 calls an hour)
+CLAUDE_CHECKIN_SECONDS = 30 * 60
+
 # .env reading/merging is shared with the setup wizard
 from stock_oracle.utils.envfile import RETIRED_ENV_KEYS, merge_env, read_env, save_env  # noqa: F401
 
@@ -1258,6 +1262,7 @@ class StockOracleGUI:
                 self.monitor_interval = 300
 
             self.monitoring = True
+            self._last_claude_checkin = time.monotonic()   # first check-in 30 min in
             self.monitor_btn.configure(text="Stop Monitoring", style="Red.TButton")
             self._log(f"Monitoring started ({self.monitor_interval}s interval)")
 
@@ -1389,12 +1394,13 @@ class StockOracleGUI:
                             f"{stats['intraday_verified']} intraday samples)"))
                         self._auto_retrain()
 
-                    # Claude advisor check-in every ~30 min (6 scans at 300s)
-                    if scan_num > 0 and scan_num % 6 == 0:
+                    # Claude advisor check-in every 30 min of monitoring
+                    if self._claude_checkin_due():
                         try:
                             self._claude_hourly_checkin()
-                        except Exception:
-                            pass  # Advisor is optional
+                        except Exception as e:
+                            # Optional, but say so when it breaks
+                            self.msg_queue.put(("log", f"Claude check-in failed: {e}"))
 
                 except Exception as e:
                     self.msg_queue.put(("log", f"Session tracker error: {e}"))
@@ -1414,6 +1420,13 @@ class StockOracleGUI:
                 if remaining % 10 == 0 or remaining <= 5:
                     self.msg_queue.put(("status", f"Next scan in {remaining}s"))
                 time.sleep(1)
+
+    def _claude_checkin_due(self) -> bool:
+        now = time.monotonic()
+        if now - getattr(self, "_last_claude_checkin", now) < CLAUDE_CHECKIN_SECONDS:
+            return False
+        self._last_claude_checkin = now
+        return True
 
     # ── Queue Processor ────────────────────────────────────────
 

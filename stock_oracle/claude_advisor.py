@@ -342,7 +342,9 @@ class ClaudeAdvisor:
                 raise ValueError("No Anthropic API key configured. Add it in Settings.")
             try:
                 import anthropic
-                self._client = anthropic.Anthropic(api_key=self.api_key)
+                # No SDK retries: a retry inside one reserved call could be billed
+                # twice but settled once against the spend cap
+                self._client = anthropic.Anthropic(api_key=self.api_key, max_retries=0)
             except ImportError:
                 raise ImportError(
                     "anthropic package not installed. "
