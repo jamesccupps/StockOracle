@@ -31,3 +31,21 @@ def test_launcher_dev_paths_match_config(monkeypatch):
     assert Path(data_dir) == pkg / "data" == Path(cfg.BASE_DIR) / "data"
     assert Path(app_dir) == pkg.parent                     # where "import stock_oracle" resolves
     assert "stock_oracle" + os.sep + "stock_oracle" not in data_dir
+
+
+def test_gui_watchlist_loader_rejects_non_lists(tmp_path, monkeypatch):
+    import queue
+    import types
+    from stock_oracle import gui
+    monkeypatch.setattr(gui, "DATA_DIR", tmp_path)
+    f = tmp_path / "gui_watchlist.json"
+    for bad in ('{"AAPL": 1}', '"AAPL"', '[1, 2]', "[]", "not json"):
+        f.write_text(bad)
+        fake = types.SimpleNamespace(watchlist=["DEFAULT"], msg_queue=queue.Queue())
+        gui.StockOracleGUI._load_watchlist(fake)
+        assert fake.watchlist == ["DEFAULT"], bad
+        assert fake.msg_queue.get_nowait()[0] == "log"
+    f.write_text('["nvda", " schd "]')
+    fake = types.SimpleNamespace(watchlist=["DEFAULT"], msg_queue=queue.Queue())
+    gui.StockOracleGUI._load_watchlist(fake)
+    assert fake.watchlist == ["NVDA", "SCHD"]

@@ -629,9 +629,17 @@ class StockOracleGUI:
         path = DATA_DIR / "gui_watchlist.json"
         if path.exists():
             try:
-                self.watchlist = json.loads(path.read_text())
-            except Exception:
-                pass
+                data = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, ValueError) as e:
+                self.msg_queue.put(("log", f"Watchlist file unreadable, keeping the default list: {e}"))
+                return
+            # Runs before the log box exists, hence the queue. The terminal
+            # edits this file too; accept only a list of tickers
+            # (an object or a string here used to become the watchlist)
+            if isinstance(data, list) and all(isinstance(t, str) for t in data) and data:
+                self.watchlist = [t.strip().upper() for t in data if t.strip()]
+            else:
+                self.msg_queue.put(("log", "Watchlist file isn't a list of tickers, keeping the default list"))
 
     # ── Analysis ───────────────────────────────────────────────
 
