@@ -84,7 +84,7 @@ class SetupWizard:
         # Widget updates from the training thread, applied by _pump_ui on the
         # Tk thread (Tk isn't thread-safe)
         self._ui_queue: "queue.Queue" = queue.Queue()
-        self.root.after(100, self._pump_ui)
+        self._pump_id = self.root.after(100, self._pump_ui)
 
         # Main container
         self.header = tk.Frame(self.root, bg=BG_PANEL, padx=20, pady=12)
@@ -186,7 +186,7 @@ class SetupWizard:
             # watchlist stay as they are; only the "done" flag is set
             mark_setup_complete()
             self.completed = True
-            self.root.destroy()
+            self._close()
 
     def _save_current_step(self):
         """Collect data from current step's entry fields."""
@@ -492,9 +492,18 @@ class SetupWizard:
         except queue.Empty:
             pass
         try:
-            self.root.after(100, self._pump_ui)
+            self._pump_id = self.root.after(100, self._pump_ui)
         except tk.TclError:
             pass                # root destroyed
+
+    def _close(self):
+        # Cancel the pending pump first: destroying the root with it still
+        # scheduled printed "invalid command name ..._pump_ui" from Tcl
+        try:
+            self.root.after_cancel(self._pump_id)
+        except (tk.TclError, AttributeError):
+            pass
+        self.root.destroy()
 
     def _append_train_log(self, msg: str):
         self.train_log.insert("end", f"[{datetime.now().strftime('%H:%M:%S')}] {msg}\n")
@@ -646,7 +655,7 @@ class SetupWizard:
 
         mark_setup_complete()
         self.completed = True
-        self.root.destroy()
+        self._close()
 
     def run(self) -> bool:
         """Run the wizard. Returns True if completed (launch main app)."""
