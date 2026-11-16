@@ -19,6 +19,7 @@ from tkinter import ttk, messagebox, scrolledtext
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
+import logging
 import queue
 import sys
 import os
@@ -1435,57 +1436,68 @@ class StockOracleGUI:
         try:
             while not self.msg_queue.empty():
                 msg = self.msg_queue.get_nowait()
+                try:
+                    if msg[0] == "call":            # run on the Tk thread
+                        msg[1]()
 
-                if msg[0] == "result":
-                    _, ticker, result = msg
-                    self.results[ticker] = result
-                    self._update_card(ticker, result)
-                    self._populate_watchlist()
-                    self._update_summary()
+                    elif msg[0] == "result":
+                        _, ticker, result = msg
+                        self.results[ticker] = result
+                        self._update_card(ticker, result)
+                        self._populate_watchlist()
+                        self._update_summary()
 
-                elif msg[0] == "status":
-                    self.status_label.configure(
-                        text=msg[1],
-                        foreground=GREEN if "Done" in msg[1] else
-                                   AMBER if "..." in msg[1] else FG_SECONDARY
-                    )
+                    elif msg[0] == "status":
+                        self.status_label.configure(
+                            text=msg[1],
+                            foreground=GREEN if "Done" in msg[1] else
+                                       AMBER if "..." in msg[1] else FG_SECONDARY
+                        )
 
-                elif msg[0] == "log":
-                    self._log(msg[1])
+                    elif msg[0] == "log":
+                        self._log(msg[1])
 
-                elif msg[0] == "alert":
-                    self._log(f"*** {msg[1]} ***")
-                    # Flash the window title
-                    self.root.title(f"ALERT - Stock Oracle - {msg[1]}")
-                    self.root.after(5000, lambda: self.root.title("Stock Oracle"))
+                    elif msg[0] == "alert":
+                        self._log(f"*** {msg[1]} ***")
+                        # Flash the window title
+                        self.root.title(f"ALERT - Stock Oracle - {msg[1]}")
+                        self.root.after(5000, lambda: self.root.title("Stock Oracle"))
 
-                elif msg[0] == "refresh":
-                    self._populate_watchlist()
-                    self._update_summary()
-                    self._resort_cards()
-                    self._update_accuracy_display()
+                    elif msg[0] == "refresh":
+                        self._populate_watchlist()
+                        self._update_summary()
+                        self._resort_cards()
+                        self._update_accuracy_display()
 
-                elif msg[0] == "update_accuracy":
-                    self._update_accuracy_display()
+                    elif msg[0] == "update_accuracy":
+                        self._update_accuracy_display()
 
-                elif msg[0] == "_claude_response":
-                    _, dialog, text_widget, answer = msg
+                    elif msg[0] == "_claude_response":
+                        _, dialog, text_widget, answer = msg
+                        try:
+                            text_widget.delete("1.0", "end")
+                            text_widget.insert("end", answer or "No response")
+                        except Exception:
+                            pass  # Dialog may have been closed
+
+                    elif msg[0] == "_claude_analysis_popup":
+                        self._show_claude_analysis_popup(msg[1])
+
+                    elif msg[0] == "_breakout_results":
+                        self._show_breakout_results(msg[1])
+
+                    elif msg[0] == "_news_feed_results":
+                        self._show_news_feed(msg[1], msg[2])
+
+                except Exception as e:
+                    # Was a bare pass around the whole loop: one failing
+                    # message silently dropped every message behind it
+                    logging.getLogger("stock_oracle").exception(f"GUI message {msg[0]!r} failed")
                     try:
-                        text_widget.delete("1.0", "end")
-                        text_widget.insert("end", answer or "No response")
+                        self._log(f"Display error ({msg[0]}): {e}")
                     except Exception:
-                        pass  # Dialog may have been closed
-
-                elif msg[0] == "_claude_analysis_popup":
-                    self._show_claude_analysis_popup(msg[1])
-
-                elif msg[0] == "_breakout_results":
-                    self._show_breakout_results(msg[1])
-
-                elif msg[0] == "_news_feed_results":
-                    self._show_news_feed(msg[1], msg[2])
-
-        except Exception:
+                        pass
+        except queue.Empty:
             pass
 
         self.root.after(200, self._process_queue)
@@ -2617,7 +2629,7 @@ class StockOracleGUI:
                 with self._oracle_lock:
                     self.oracle = None
                 self.msg_queue.put(("log", "Oracle will reload with ML on next analysis"))
-                self.root.after(100, self._check_ml_status)
+                self.msg_queue.put(("call", self._check_ml_status))
 
             except Exception as e:
                 self.msg_queue.put(("log", f"Training error: {e}"))
@@ -3780,6 +3792,9 @@ class StockOracleGUI:
 
     def _update_advisor_status(self):
         """Update the advisor status label."""
+        if threading.current_thread() is not threading.main_thread():
+            self.msg_queue.put(("call", self._update_advisor_status))
+            return
         try:
             advisor = self._get_advisor()
             if advisor:
@@ -4134,6 +4149,11 @@ class StockOracleGUI:
     # ── Logging ────────────────────────────────────────────────
 
     def _log(self, message: str):
+        # Tk isn't thread-safe; worker threads (monitor loop, Claude calls)
+        # log too, so hand those lines to the main thread via the queue
+        if threading.current_thread() is not threading.main_thread():
+            self.msg_queue.put(("log", message))
+            return
         timestamp = datetime.now().strftime("%H:%M:%S")
         self.log_text.insert(tk.END, f"[{timestamp}] {message}\n")
         self.log_text.see(tk.END)
@@ -4209,13 +4229,13 @@ class StockOracleGUI:
             draw.text((22, 22), "SO", fill='white')
 
             def on_open(icon, item):
-                self.root.after(0, self._show_window)
+                self.msg_queue.put(("call", self._show_window))
 
             def on_toggle_monitor(icon, item):
-                self.root.after(0, self._toggle_monitor)
+                self.msg_queue.put(("call", self._toggle_monitor))
 
             def on_quit(icon, item):
-                self.root.after(0, self._real_quit)
+                self.msg_queue.put(("call", self._real_quit))
 
             menu = pystray.Menu(
                 pystray.MenuItem("Open Stock Oracle", on_open, default=True),

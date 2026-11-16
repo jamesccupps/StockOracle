@@ -8,6 +8,7 @@ After completion, writes a .setup_complete flag so it doesn't run again.
 """
 import json
 import os
+import queue
 import threading
 import tkinter as tk
 from tkinter import ttk, scrolledtext, messagebox
@@ -80,6 +81,10 @@ class SetupWizard:
         self.watchlist: List[str] = _existing_watchlist() or list(WATCHLIST)
         self.current_step = 0
         self.completed = False
+        # Widget updates from the training thread, applied by _pump_ui on the
+        # Tk thread (Tk isn't thread-safe)
+        self._ui_queue: "queue.Queue" = queue.Queue()
+        self.root.after(100, self._pump_ui)
 
         # Main container
         self.header = tk.Frame(self.root, bg=BG_PANEL, padx=20, pady=12)
@@ -476,6 +481,25 @@ class SetupWizard:
                                         font=("Consolas", 10))
         self.train_progress.pack(anchor="w", pady=(4, 0))
 
+    def _pump_ui(self):
+        try:
+            while True:
+                fn, args, kwargs = self._ui_queue.get_nowait()
+                try:
+                    fn(*args, **kwargs)
+                except tk.TclError:
+                    pass        # widget already gone (window closed mid-run)
+        except queue.Empty:
+            pass
+        try:
+            self.root.after(100, self._pump_ui)
+        except tk.TclError:
+            pass                # root destroyed
+
+    def _append_train_log(self, msg: str):
+        self.train_log.insert("end", f"[{datetime.now().strftime('%H:%M:%S')}] {msg}\n")
+        self.train_log.see("end")
+
     def _run_training(self):
         """Execute history generation, ML training, and first analysis."""
         self._save_all_settings()
@@ -485,10 +509,11 @@ class SetupWizard:
         self.next_btn.configure(state="disabled", text="Working...")
         self.back_btn.configure(state="disabled")
 
+        def ui(fn, *args, **kwargs):
+            self._ui_queue.put((fn, args, kwargs))
+
         def log(msg):
-            self.train_log.insert("end", f"[{datetime.now().strftime('%H:%M:%S')}] {msg}\n")
-            self.train_log.see("end")
-            self.root.update_idletasks()
+            ui(self._append_train_log, msg)
 
         def run():
             try:
@@ -499,7 +524,7 @@ class SetupWizard:
 
                 # Step 1: Generate historical data
                 log("Generating historical price data...")
-                self.train_progress.configure(text="Downloading price history...", fg=AMBER)
+                ui(self.train_progress.configure, text="Downloading price history...", fg=AMBER)
 
                 from stock_oracle.historical_trainer import generate_historical_samples
                 total_samples = 0
@@ -510,7 +535,7 @@ class SetupWizard:
                         log(f"  {ticker}: {n} samples")
                     except Exception as e:
                         log(f"  {ticker}: error ({e})")
-                    self.train_progress.configure(
+                    ui(self.train_progress.configure,
                         text=f"History: {i+1}/{len(self.watchlist)} tickers...", fg=AMBER)
 
                 log(f"Total: {total_samples} historical samples")
@@ -518,7 +543,7 @@ class SetupWizard:
                 # Step 2: Train ML
                 if total_samples >= 50:
                     log("Training ML models...")
-                    self.train_progress.configure(text="Training ML...", fg=AMBER)
+                    ui(self.train_progress.configure, text="Training ML...", fg=AMBER)
 
                     from stock_oracle.historical_trainer import load_historical_training_data
                     from stock_oracle.ml.pipeline import StockPredictor
@@ -532,7 +557,7 @@ class SetupWizard:
 
                 # Step 3: Initial analysis (first 5 tickers as a quick test)
                 log("Running initial analysis...")
-                self.train_progress.configure(text="Analyzing...", fg=AMBER)
+                ui(self.train_progress.configure, text="Analyzing...", fg=AMBER)
 
                 from stock_oracle.oracle import StockOracle
                 oracle = StockOracle()
@@ -550,15 +575,15 @@ class SetupWizard:
 
                 log("")
                 log("Setup complete! Click 'Launch Stock Oracle' to start.")
-                self.train_progress.configure(text="Done!", fg=GREEN)
+                ui(self.train_progress.configure, text="Done!", fg=GREEN)
 
             except Exception as e:
                 log(f"Error: {e}")
-                self.train_progress.configure(text=f"Error: {e}", fg=RED)
+                ui(self.train_progress.configure, text=f"Error: {e}", fg=RED)
 
             # Re-enable nav
-            self.next_btn.configure(state="normal", text="Launch Stock Oracle")
-            self.back_btn.configure(state="normal")
+            ui(self.next_btn.configure, state="normal", text="Launch Stock Oracle")
+            ui(self.back_btn.configure, state="normal")
 
             # Move to done step
             self.current_step = len(self.steps) - 1
