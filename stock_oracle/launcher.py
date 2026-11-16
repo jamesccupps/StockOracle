@@ -13,7 +13,7 @@ def get_app_dirs():
     Returns (app_dir, data_dir) paths.
     
     In dev mode:
-        app_dir = the stock_oracle package directory
+        app_dir = the repository root (parent of the stock_oracle package)
         data_dir = stock_oracle/data (inside the project)
     
     In frozen (PyInstaller) mode:
@@ -27,9 +27,13 @@ def get_app_dirs():
             os.environ.get("APPDATA", app_dir), "StockOracle"
         )
     else:
-        # Running as normal Python
-        app_dir = os.path.dirname(os.path.abspath(__file__))
-        data_dir = os.path.join(app_dir, "stock_oracle", "data")
+        # Running as normal Python. This file is inside the package, so the
+        # package dir is its folder (data/ under it, as config.py defaults)
+        # and the repo root, which must be on sys.path, is one up. Joining
+        # "stock_oracle/data" onto the package dir went one level too deep.
+        pkg_dir = os.path.dirname(os.path.abspath(__file__))
+        app_dir = os.path.dirname(pkg_dir)
+        data_dir = os.path.join(pkg_dir, "data")
 
     # Ensure data directories exist
     for subdir in ["", "predictions", "sessions", "models", "cache"]:
