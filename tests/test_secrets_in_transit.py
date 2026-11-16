@@ -140,3 +140,12 @@ def test_ticker_resolver_uses_configured_sec_contact(monkeypatch):
     monkeypatch.setattr("requests.get", fake_get)
     assert ticker_resolver._lookup_sec("AAPL") == "Apple Inc."
     assert seen["ua"] == "StockOracle someone@example.org"
+
+
+def test_stream_errors_are_redacted(caplog):
+    from stock_oracle import realtime
+    src = __import__("inspect").getsource(realtime)
+    for name in ("Finnhub error", "Finnhub websocket crashed", "Alpaca error",
+                 "Alpaca websocket crashed", "Polygon error"):
+        line = next(l for l in src.splitlines() if f'"{name}: ' in l)
+        assert "redact(" in line, name

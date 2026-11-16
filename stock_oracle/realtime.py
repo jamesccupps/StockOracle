@@ -31,6 +31,10 @@ from collections import deque
 from datetime import datetime, timedelta
 from typing import Callable, Dict, List, Optional, Set
 
+# The Finnhub stream carries its key in the URL (?token=), which some
+# websocket errors echo; scrub before logging
+from stock_oracle.utils.redact import redact
+
 logger = logging.getLogger("stock_oracle")
 
 # Try websocket imports
@@ -265,7 +269,7 @@ class FinnhubRealtime:
             logger.info(f"Finnhub websocket connected ({len(self._symbols)} symbols)")
 
         def on_error(ws, error):
-            logger.error(f"Finnhub error: {error}")
+            logger.error(f"Finnhub error: {redact(error)}")
 
         def on_close(ws, close_status_code, close_msg):
             self._connected = False
@@ -286,7 +290,7 @@ class FinnhubRealtime:
             try:
                 self._ws.run_forever(ping_interval=30, ping_timeout=10)
             except Exception as e:
-                logger.error(f"Finnhub websocket crashed: {e}")
+                logger.error(f"Finnhub websocket crashed: {redact(e)}")
             self._connected = False
             if not self._running:
                 break
@@ -429,7 +433,7 @@ class AlpacaRealtime:
             logger.info("Alpaca websocket connected, authenticating")
 
         def on_error(ws, error):
-            logger.error(f"Alpaca error: {error}")
+            logger.error(f"Alpaca error: {redact(error)}")
 
         def on_close(ws, *args):
             self._connected = False
@@ -447,7 +451,7 @@ class AlpacaRealtime:
             try:
                 self._ws.run_forever(ping_interval=30, ping_timeout=10)
             except Exception as e:
-                logger.error(f"Alpaca websocket crashed: {e}")
+                logger.error(f"Alpaca websocket crashed: {redact(e)}")
             self._connected = False
             if not self._running:
                 break
@@ -603,7 +607,7 @@ class PolygonRealtime:
             logger.info("Polygon websocket connected")
 
         def on_error(ws, error):
-            logger.error(f"Polygon error: {error}")
+            logger.error(f"Polygon error: {redact(error)}")
 
         def on_close(ws, *args):
             if self._running:
