@@ -133,9 +133,12 @@ def resolve_name(ticker: str) -> str:
         if not name:
             name = _lookup_sec(ticker)
 
-        # Final fallback: just use the ticker
+        # Final fallback: just use the ticker, but don't cache it. A lookup
+        # that failed once (network blip, rate limit) used to pin the ticker as
+        # its own company name for good, so news searches used "AAPL".
         if not name:
-            name = ticker
+            logger.info(f"Could not resolve {ticker}; using the ticker for now")
+            return ticker
 
         # Cache it
         cache[ticker] = name
