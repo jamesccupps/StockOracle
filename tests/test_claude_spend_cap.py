@@ -123,15 +123,16 @@ def test_current_models_are_priced(model):
 
 
 def test_stale_reservation_from_crashed_process_expires():
+    PRICED = "claude-haiku-4-5-20251001"   # $1/$5 per M: the hold below is ~$0.51
     t = ca.SpendingTracker(monthly_cap=1.0)
-    rid, _ = t.reserve(10_000, 100_000, ca.DEFAULT_MODEL)     # ~$0.51 hold
+    rid, _ = t.reserve(10_000, 100_000, PRICED)     # ~$0.51 hold
     assert rid
-    ok, _ = ca.SpendingTracker(monthly_cap=1.0).can_afford(1000, 1000, ca.DEFAULT_MODEL)
+    ok, _ = ca.SpendingTracker(monthly_cap=1.0).can_afford(1000, 1000, PRICED)
     assert not ok                                               # the hold counts
     data = json.loads(ca.USAGE_FILE.read_text())
     data["reservations"][rid]["at"] -= ca.RESERVATION_TTL + 1
     ca.USAGE_FILE.write_text(json.dumps(data))
-    ok, _ = ca.SpendingTracker(monthly_cap=1.0).can_afford(1000, 1000, ca.DEFAULT_MODEL)
+    ok, _ = ca.SpendingTracker(monthly_cap=1.0).can_afford(1000, 1000, PRICED)
     assert ok
 
 

@@ -98,7 +98,7 @@ Type a ticker to load it into every linked panel, then a function code. `NVDA BR
 |-----|--------|------|-----------------|
 | Finnhub | [finnhub.io](https://finnhub.io/register) | Free | Real-time prices, company news |
 | Alpaca | [alpaca.markets](https://alpaca.markets) | Free | Live quote stream in the terminal (IEX feed) when there's no Finnhub key |
-| Anthropic | [console.anthropic.com](https://console.anthropic.com) | ~$5/mo | Claude AI advisor and the terminal's `ASK` (default model Haiku 4.5, cap set by `CLAUDE_MONTHLY_CAP`) |
+| Anthropic | [console.anthropic.com](https://console.anthropic.com) | ~$5/mo | Claude AI advisor and the terminal's `ASK` (default model Haiku 5.5, cap set by `CLAUDE_MONTHLY_CAP`) |
 | FRED | [fred.stlouisfed.org](https://fred.stlouisfed.org) | Free | Economic indicators |
 | News API | [newsapi.org](https://newsapi.org) | Free | News sentiment |
 | Reddit | [reddit.com/prefs/apps](https://www.reddit.com/prefs/apps) | Free | Social sentiment |

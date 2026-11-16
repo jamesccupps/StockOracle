@@ -70,3 +70,18 @@ def test_structured_calls_get_room_and_cutoffs_are_loud(monkeypatch, caplog):
     assert asked == [ca.STRUCTURED_MAX_OUTPUT_TOKENS] and ca.STRUCTURED_MAX_OUTPUT_TOKENS >= 8000
     assert "cut off" in caplog.text
     assert out["weight_adjustments"] == {}            # unparseable reply applies nothing
+
+
+def test_haiku_5_5_is_sent_with_thinking_off_and_others_unchanged():
+    sent = {}
+    resp = types.SimpleNamespace(usage=types.SimpleNamespace(input_tokens=1, output_tokens=1),
+                                 stop_reason="end_turn", content=[TextBlock(type="text", text="ok")])
+    for model in (ca.DEFAULT_MODEL, "claude-haiku-4-5-20251001", "claude-opus-5-5"):
+        adv = ca.ClaudeAdvisor(api_key="x", model=model, monthly_cap=10.0)
+        adv._client = types.SimpleNamespace(messages=types.SimpleNamespace(
+            create=lambda **kw: sent.__setitem__(kw["model"], kw) or resp))
+        assert adv._call_api("s", "q", "t", 100) == "ok"
+    assert ca.DEFAULT_MODEL == "claude-haiku-5-5"
+    assert sent["claude-haiku-5-5"]["thinking"] == {"type": "disabled"}
+    assert "thinking" not in sent["claude-haiku-4-5-20251001"]
+    assert "thinking" not in sent["claude-opus-5-5"]       # can't be disabled there: never sent

@@ -53,7 +53,19 @@ MODEL_COSTS = {
     "claude-haiku-4-5-20251001": {"input": 1.00,  "output": 5.00},
     "claude-sonnet-4-20250514":  {"input": 3.00,  "output": 15.00},  # deprecated
 }
-DEFAULT_MODEL = "claude-haiku-4-5-20251001"
+# Live comparison on the advisor's real calls (2026-11-16, 27-ticker watchlist):
+# Haiku 5.5 with thinking off completed every call at about a tenth of Haiku
+# 4.5's cost (check-in $0.0024 vs $0.019) and in about half the time.
+DEFAULT_MODEL = "claude-haiku-5-5"
+
+# Extra request parameters per model. Haiku 5.5 thinks by default and the
+# thinking counts against max_tokens: as-is (and at effort "low") it spent the
+# budget thinking and cut off the check-in and session review. With thinking
+# disabled (allowed at its default effort) every call finished. Other models
+# are sent unchanged; untested ones get no special handling.
+MODEL_REQUEST_EXTRAS = {
+    "claude-haiku-5-5": {"thinking": {"type": "disabled"}},
+}
 # Unknown model: assume the most expensive tier so the cap can only undershoot
 FALLBACK_INPUT_COST = 10.00
 FALLBACK_OUTPUT_COST = 50.00
@@ -401,6 +413,7 @@ class ClaudeAdvisor:
                 max_tokens=max_output,
                 system=system_prompt,
                 messages=[{"role": "user", "content": user_message}],
+                **MODEL_REQUEST_EXTRAS.get(self.model, {}),
             )
 
             if getattr(response, "stop_reason", None) == "max_tokens":
