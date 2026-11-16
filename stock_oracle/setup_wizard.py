@@ -15,6 +15,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List
 
+from stock_oracle.utils.atomic import write_text_atomic
 from stock_oracle.utils.envfile import read_env, save_env
 
 from stock_oracle.config import (
@@ -25,6 +26,15 @@ from stock_oracle.config import (
 )
 
 SETUP_FLAG = DATA_DIR / ".setup_complete"
+WATCHLIST_FILE_NAME = "gui_watchlist.json"   # shared with gui.py and terminal/settings.py
+
+
+def _existing_watchlist() -> List[str]:
+    try:
+        data = json.loads((DATA_DIR / WATCHLIST_FILE_NAME).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    return [t for t in data if isinstance(t, str) and t.strip()] if isinstance(data, list) else []
 
 
 def needs_setup() -> bool:
@@ -67,7 +77,7 @@ class SetupWizard:
         # and filled it in, or a reinstall that lost data/.setup_complete),
         # so the boxes show it and saving doesn't wipe it
         self.settings: Dict[str, str] = read_env(BASE_DIR / ".env")
-        self.watchlist: List[str] = list(WATCHLIST)
+        self.watchlist: List[str] = _existing_watchlist() or list(WATCHLIST)
         self.current_step = 0
         self.completed = False
 
@@ -597,11 +607,9 @@ class SetupWizard:
         save_env(BASE_DIR / ".env", self.settings,
                  datetime.now().strftime('%Y-%m-%d %H:%M:%S'), source="Setup Wizard")
 
-        # Also save watchlist
-        wl_path = DATA_DIR / "watchlist.json"
-        DATA_DIR.mkdir(parents=True, exist_ok=True)
-        with open(wl_path, "w") as f:
-            json.dump(self.watchlist, f)
+        # The file the GUI and the terminal read (it was watchlist.json, which
+        # nothing reads, so the chosen tickers never reached the app)
+        write_text_atomic(DATA_DIR / WATCHLIST_FILE_NAME, json.dumps(self.watchlist))
 
     def _finish(self):
         """Mark setup complete and close wizard."""

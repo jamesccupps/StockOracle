@@ -61,3 +61,25 @@ def test_saving_merges_instead_of_overwriting(wizard):
     assert env["TERMINAL_STREAM"] == "alpaca"        # not a wizard field
     assert "RH_PASSWORD" not in env                  # retired broker login dropped
     assert "NEWS_API_KEY" not in env
+
+
+def test_watchlist_goes_to_the_file_the_app_reads(wizard):
+    import json
+    from stock_oracle.terminal import settings as terminal_settings
+    w, _, data = wizard
+    w.watchlist = ["NVDA", "SCHD"]
+    w._save_all_settings()
+    assert json.loads((data / "gui_watchlist.json").read_text()) == ["NVDA", "SCHD"]
+    assert not (data / "watchlist.json").exists()
+    # same file name the GUI and the terminal use
+    assert terminal_settings.WATCHLIST_FILE.name == sw.WATCHLIST_FILE_NAME
+    gui_src = (sw.Path(sw.__file__).parent / "gui.py").read_text(encoding="utf-8")
+    assert f'DATA_DIR / "{sw.WATCHLIST_FILE_NAME}"' in gui_src
+
+
+def test_wizard_starts_from_existing_watchlist(tmp_path, monkeypatch):
+    (tmp_path / "gui_watchlist.json").write_text('["LUNR", "RKLB"]')
+    monkeypatch.setattr(sw, "DATA_DIR", tmp_path)
+    assert sw._existing_watchlist() == ["LUNR", "RKLB"]
+    (tmp_path / "gui_watchlist.json").write_text('{"not": "a list"}')
+    assert sw._existing_watchlist() == []
