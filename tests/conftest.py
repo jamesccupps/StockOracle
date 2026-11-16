@@ -18,3 +18,24 @@ def _collect_on_main_thread():
     """
     yield
     gc.collect()
+
+
+@pytest.fixture(autouse=True)
+def _no_live_quote_polling(monkeypatch):
+    """Keep unit tests off the network. Every create_app() lifespan started
+    the real QuoteHub, which polls Yahoo from worker threads on every
+    terminal test: slow, rate-limited from CI runners, and no test reads the
+    result. register() still pushes the status message the websocket tests
+    read."""
+    import asyncio
+    from stock_oracle.terminal import quotes
+
+    async def start(self):
+        self._loop = asyncio.get_running_loop()
+        self._tasks = []
+
+    async def stop(self):
+        pass
+
+    monkeypatch.setattr(quotes.QuoteHub, "start", start)
+    monkeypatch.setattr(quotes.QuoteHub, "stop", stop)
