@@ -51,3 +51,22 @@ def test_gui_checkin_is_paced_by_the_clock_not_scan_count(monkeypatch):
     clock[0] = 1000.0 + 30 * 60
     assert due()                    # 30 min reached
     assert not due()                # and the clock restarted
+
+
+def test_structured_calls_get_room_and_cutoffs_are_loud(monkeypatch, caplog):
+    import logging
+    from stock_oracle import market_regime
+    monkeypatch.setattr(market_regime.MarketRegimeDetector, "detect", lambda self, *a, **k: {})  # offline
+    adv = ca.ClaudeAdvisor(api_key="x", monthly_cap=10.0)
+    asked = []
+    resp = types.SimpleNamespace(usage=types.SimpleNamespace(input_tokens=10, output_tokens=8000),
+                                 stop_reason="max_tokens",
+                                 content=[TextBlock(type="text", text='{"weight_adjustments": {')])
+    adv._client = types.SimpleNamespace(messages=types.SimpleNamespace(
+        create=lambda **kw: asked.append(kw["max_tokens"]) or resp))
+    with caplog.at_level(logging.WARNING, logger="stock_oracle"):
+        out = adv.hourly_checkin({}, {}, [])
+    # 27 tickers measured ~3,800 output tokens; the old 2,000 cut every check-in off
+    assert asked == [ca.STRUCTURED_MAX_OUTPUT_TOKENS] and ca.STRUCTURED_MAX_OUTPUT_TOKENS >= 8000
+    assert "cut off" in caplog.text
+    assert out["weight_adjustments"] == {}            # unparseable reply applies nothing

@@ -62,7 +62,12 @@ FALLBACK_OUTPUT_COST = 50.00
 DEFAULT_MONTHLY_CAP = 10.00        # Hard cap in dollars
 WARNING_THRESHOLD_PCT = 0.80       # Warn at 80% of cap
 PER_CALL_MAX_INPUT_TOKENS = 12000  # Won't send more than this
-PER_CALL_MAX_OUTPUT_TOKENS = 4000  # Won't request more than this
+PER_CALL_MAX_OUTPUT_TOKENS = 8000  # Won't request more than this (billing is per token written)
+# The check-in and session review ask for JSON plus a detailed analysis that
+# grows with the watchlist. Measured live (2026-11-16, 27 tickers): up to
+# ~3,800 output tokens; at the old 2,000 cap every check-in was cut off
+# mid-JSON, so no weights or alerts were ever applied.
+STRUCTURED_MAX_OUTPUT_TOKENS = 8000
 MIN_BALANCE_FOR_CALL = 0.50        # Stop if less than $0.50 remaining
 RESERVATION_TTL = 900              # seconds; drops holds left by a crashed process
 
@@ -398,6 +403,12 @@ class ClaudeAdvisor:
                 messages=[{"role": "user", "content": user_message}],
             )
 
+            if getattr(response, "stop_reason", None) == "max_tokens":
+                # Was silent: a cut-off check-in fails JSON parsing and quietly
+                # applies nothing
+                logger.warning(f"Claude advisor ({purpose}): reply hit the {max_output}-token "
+                               f"limit and was cut off")
+
             # Record actual usage
             input_tokens = response.usage.input_tokens
             output_tokens = response.usage.output_tokens
@@ -566,7 +577,8 @@ class ClaudeAdvisor:
             "\n".join(ticker_summaries)
         )
 
-        response = self._call_api(system, user_msg, "hourly_checkin", max_output=2000)
+        response = self._call_api(system, user_msg, "hourly_checkin",
+                                  max_output=STRUCTURED_MAX_OUTPUT_TOKENS)
         if not response:
             return None
 
@@ -648,7 +660,8 @@ class ClaudeAdvisor:
             f"{json.dumps(compact, separators=(',', ':'))}"
         )
 
-        return self._call_api(system, user_msg, "end_of_session", max_output=3000)
+        return self._call_api(system, user_msg, "end_of_session",
+                              max_output=STRUCTURED_MAX_OUTPUT_TOKENS)
 
     def ask_question(self, question: str, results: Dict = None,
                      context: str = "") -> Optional[str]:
