@@ -132,3 +132,51 @@ def test_static_assets_revalidate(client):
     etag = r.headers["etag"]
     r2 = client.get("/static/js/app.js", headers={"If-None-Match": etag})
     assert r2.status_code == 304
+
+
+# ── cross-origin POSTs (another local port is the same *site*) ──
+
+AUTH = {"x-terminal-token": TOK}
+
+
+@pytest.mark.parametrize("headers", [
+    {"Origin": "http://127.0.0.1:3000"},                       # page on another local port
+    {"Origin": "http://localhost:8765"},                       # same port, different host name
+    {"Origin": "null"},                                        # sandboxed frame / file: page
+    {"Sec-Fetch-Site": "same-site"},                           # browser says: other port, same site
+    {"Sec-Fetch-Site": "cross-site", "Origin": LOCAL},
+])
+def test_cross_origin_post_refused_even_with_cookie(client, headers):
+    client.get(f"/?token={TOK}")                               # cookie set, like a real browser
+    r = client.post("/api/oracle/AAPL/run?fast=true", headers=headers)
+    assert r.status_code == 403
+    assert client.post("/api/scan", headers=headers).status_code == 403
+
+
+def test_same_origin_post_from_the_terminal_page_allowed(client, monkeypatch):
+    from stock_oracle.terminal import server
+    started = []
+    monkeypatch.setattr(server.OracleBridge, "run", lambda self, sym, fast=False: started.append(sym) or _done())
+    client.get(f"/?token={TOK}")
+    r = client.post("/api/oracle/AAPL/run?fast=true",
+                    headers={"Origin": LOCAL, "Sec-Fetch-Site": "same-origin"})
+    assert r.status_code == 200 and started == ["AAPL"]
+
+
+def test_non_browser_post_needs_only_the_token(client, monkeypatch):
+    from stock_oracle.terminal import server
+    monkeypatch.setattr(server.OracleBridge, "run", lambda self, sym, fast=False: _done())
+    assert client.post("/api/oracle/AAPL/run", headers=AUTH).status_code == 200
+
+
+def test_cross_origin_get_still_served(client):
+    # reads have no side effects, and CORS already keeps the response from the other page
+    assert client.get("/api/watchlist", headers={**AUTH, "Origin": "http://127.0.0.1:3000"}).status_code == 200
+
+
+async def _coro(v):
+    return v
+
+
+def _done():
+    return _coro({"state": "queued"})

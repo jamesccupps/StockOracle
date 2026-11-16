@@ -48,6 +48,24 @@ def _host_only(host_header: str) -> str:
     return h.split(":", 1)[0]
 
 
+def _cross_origin(headers) -> bool:
+    """True when the browser says the request came from another origin.
+
+    SameSite=Strict keeps the cookie off requests from other *sites*, but a
+    site ignores the port: a page on any other 127.0.0.1/localhost port is the
+    same site and gets the cookie. Origin and Sec-Fetch-Site do include the
+    port. Non-browser clients send neither and are still held to the token.
+    """
+    fetch_site = headers.get("sec-fetch-site")
+    if fetch_site is not None and fetch_site not in ("same-origin", "none"):
+        return True
+    origin = headers.get("origin")
+    if origin is None:
+        return False
+    # "null" comes from sandboxed frames and file: pages
+    return origin == "null" or urlsplit(origin).netloc.lower() != headers.get("host", "").lower()
+
+
 def create_app(token: Optional[str] = None,
                trusted_hosts: Optional[frozenset] = None) -> FastAPI:
     router = DataRouter()
@@ -84,6 +102,10 @@ def create_app(token: Optional[str] = None,
         if not _authorized(request.cookies, request.query_params, request.headers):
             return JSONResponse({"detail": "Missing or wrong terminal token. Open the URL printed "
                                            "in the console (it ends with ?token=...)."}, 401)
+        # POST /api/scan and /api/oracle/{sym}/run take no body, so a plain form
+        # on another local port could fire them with the cookie attached
+        if request.method not in ("GET", "HEAD", "OPTIONS") and _cross_origin(request.headers):
+            return JSONResponse({"detail": "Cross-origin request refused."}, 403)
         response = await call_next(request)
         if request.url.path.startswith("/static/"):
             # Revalidate (ETag -> 304) instead of heuristic caching, which kept
