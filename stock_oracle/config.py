@@ -27,7 +27,9 @@ for d in [DATA_DIR, CACHE_DIR, MODEL_DIR]:
 _env_file = BASE_DIR / ".env"
 if _env_file.exists():
     try:
-        for _line in _env_file.read_text().splitlines():
+        # utf-8-sig: a byte-order mark (PowerShell 5.1's -Encoding utf8, Notepad's
+        # "UTF-8 with BOM") would otherwise hide the first key
+        for _line in _env_file.read_text(encoding="utf-8-sig", errors="replace").splitlines():
             _line = _line.strip()
             if _line and not _line.startswith("#") and "=" in _line:
                 _key, _, _val = _line.partition("=")

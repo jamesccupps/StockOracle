@@ -57,7 +57,8 @@ def _read_env_file() -> Dict[str, str]:
         if mtime != _env_mtime:
             values = {}
             try:
-                for line in ENV_FILE.read_text(encoding="utf-8", errors="replace").splitlines():
+                # utf-8-sig: a byte-order mark would otherwise hide the first key
+                for line in ENV_FILE.read_text(encoding="utf-8-sig", errors="replace").splitlines():
                     line = line.strip()
                     if line and not line.startswith("#") and "=" in line:
                         key, _, val = line.partition("=")

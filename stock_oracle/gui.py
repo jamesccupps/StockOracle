@@ -34,7 +34,7 @@ from stock_oracle.config import (
 )
 
 # .env reading/merging is shared with the setup wizard
-from stock_oracle.utils.envfile import RETIRED_ENV_KEYS, merge_env, save_env  # noqa: F401
+from stock_oracle.utils.envfile import RETIRED_ENV_KEYS, merge_env, read_env, save_env  # noqa: F401
 
 
 def open_news_url(url: str) -> bool:
@@ -3640,13 +3640,8 @@ class StockOracleGUI:
         settings = {}
         env_path = Path(__file__).parent / ".env"
 
-        # Load from .env file
-        if env_path.exists():
-            for line in env_path.read_text().splitlines():
-                line = line.strip()
-                if line and not line.startswith("#") and "=" in line:
-                    key, _, value = line.partition("=")
-                    settings[key.strip()] = value.strip().strip('"').strip("'")
+        # Load from .env file (read_env strips a byte-order mark)
+        settings.update(read_env(env_path))
 
         # Also check os.environ as fallback
         for key in [
