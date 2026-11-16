@@ -57,8 +57,14 @@ jobs:
                       emitted += 1
           if not emitted:
               # No per-test failure recorded (pytest crashed, or failed outside a test)
-              tail = ["(no pytest output captured)"]
+              out = ["(no pytest output captured)"]
               if os.path.exists("pytest-output.txt"):
                   with open("pytest-output.txt", encoding="utf-8", errors="replace") as f:
-                      tail = f.read().splitlines()[-60:]
-              print(f"::error title=pytest output tail::{esc(chr(10).join(tail)[-4000:])}")
+                      out = f.read().splitlines()
+              # A hard crash prints a faulthandler dump: the crashing thread
+              # comes first, so post the start of the dump, then the tail
+              start = next((i for i, l in enumerate(out)
+                            if "fatal exception" in l.lower() or "Fatal Python error" in l), None)
+              if start is not None:
+                  print(f"::error title=crash dump (head)::{esc(chr(10).join(out[start:start + 45])[:4000])}")
+              print(f"::error title=pytest output tail::{esc(chr(10).join(out[-60:])[-4000:])}")
