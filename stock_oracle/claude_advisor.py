@@ -33,6 +33,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 import stock_oracle.config as cfg
+from stock_oracle.utils.sanitize import UNTRUSTED_NOTE
 
 logger = logging.getLogger("stock_oracle")
 
@@ -657,7 +658,8 @@ class ClaudeAdvisor:
         system = (
             "You are a quantitative trading advisor for Stock Oracle, "
             "a 38-collector stock prediction system. Answer concisely and practically. "
-            "If the question involves specific tickers, reference the provided signal data."
+            "If the question involves specific tickers, reference the provided signal data. "
+            + UNTRUSTED_NOTE
         )
 
         # Add current data context if available

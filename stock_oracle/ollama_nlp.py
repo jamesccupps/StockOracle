@@ -19,6 +19,8 @@ from typing import Dict, List, Optional
 
 import requests
 
+from stock_oracle.utils.sanitize import UNTRUSTED_NOTE, fenced, quoted
+
 logger = logging.getLogger("stock_oracle")
 
 
@@ -87,7 +89,8 @@ class OllamaNLP:
                 json={
                     "model": self.model,
                     "prompt": prompt,
-                    "system": system,
+                    # Every prompt here carries outside text; say it's data
+                    "system": f"{system}\n\n{UNTRUSTED_NOTE}".strip(),
                     "stream": False,
                     "options": {
                         "temperature": temperature,
@@ -162,7 +165,7 @@ Analyze the transcript and return ONLY a JSON object with these exact keys:
 }
 Return ONLY valid JSON, no other text."""
 
-        prompt = f"Analyze this {ticker} earnings call transcript:\n\n{chunk}"
+        prompt = f"Analyze this {ticker} earnings call transcript:\n\n{fenced(chunk)}"
 
         result = self._generate_json(prompt, system)
 
@@ -202,7 +205,7 @@ Return ONLY valid JSON, no other text."""
 
         # Format articles for analysis
         article_text = "\n".join([
-            f"[{i+1}] {a.get('title', 'No title')} — {a.get('source', 'Unknown')}"
+            f"[{i+1}] {quoted(a.get('title', 'No title'), 200)} — {quoted(a.get('source', 'Unknown'), 40)}"
             for i, a in enumerate(articles[:15])
         ])
 
@@ -257,7 +260,7 @@ Return ONLY valid JSON."""
 Return ONLY valid JSON."""
 
         result = self._generate_json(
-            f"Analyze this {ticker} SEC filing:\n\n{chunk}",
+            f"Analyze this {ticker} SEC filing:\n\n{fenced(chunk)}",
             system,
         )
 
@@ -283,7 +286,7 @@ Return ONLY valid JSON."""
             "You are a financial analyst. Provide concise, actionable analysis. "
             "Focus on implications for stock price and trading decisions."
         )
-        return self._generate(f"{question}\n\nText:\n{text}", system)
+        return self._generate(f"{question}\n\nText:\n{fenced(text)}", system)
 
     def compare_filings(self, current: str, previous: str, ticker: str) -> Dict:
         """
@@ -303,8 +306,8 @@ Return ONLY valid JSON."""
 
         prompt = (
             f"{ticker} Filing Comparison\n\n"
-            f"CURRENT PERIOD:\n{current[:4000]}\n\n"
-            f"PREVIOUS PERIOD:\n{previous[:4000]}"
+            f"CURRENT PERIOD:\n{fenced(current, 4000)}\n\n"
+            f"PREVIOUS PERIOD:\n{fenced(previous, 4000)}"
         )
 
         return self._generate_json(prompt, system) or {"signal": 0, "error": "Comparison failed"}

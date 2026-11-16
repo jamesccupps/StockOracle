@@ -17,6 +17,7 @@ import time
 from typing import Dict
 
 from stock_oracle.terminal import symbols as S
+from stock_oracle.utils.sanitize import quoted, safe
 
 logger = logging.getLogger("stock_oracle.terminal")
 
@@ -179,7 +180,9 @@ def _f(v, fmt="{:,.2f}", none="n/a"):
 
 
 def security_text(d: Dict) -> str:
-    L = [f"=== {d['symbol']} — {d.get('name', '')} ({d.get('sector') or 'n/a'}) ==="]
+    # Third-party text (names, headlines, analyst actions, filing descriptions)
+    # goes in quoted(); the ASK system prompt says quoted text is data
+    L = [f"=== {d['symbol']} — {safe(d.get('name', ''), 80)} ({safe(d.get('sector') or 'n/a', 40)}) ==="]
     p = d.get("price") or {}
     L.append(f"Price {_f(p.get('last'))} ({_f(p.get('change_pct'), '{:+.2f}%')} today)"
              + (f", extended hours {_f(p.get('ext_price'))} ({_f(p.get('ext_change_pct'), '{:+.2f}%')})"
@@ -206,7 +209,7 @@ def security_text(d: Dict) -> str:
     if a:
         L.append(f"Analysts: {a.get('buy')} buy / {a.get('hold')} hold / {a.get('sell')} sell, rating "
                  f"'{a.get('rating')}', target mean {_f(a.get('target_mean'))} (range {_f(a.get('target_low'))}-"
-                 f"{_f(a.get('target_high'))}). Recent: " + "; ".join(a.get("recent_actions") or []))
+                 f"{_f(a.get('target_high'))}). Recent: " + "; ".join(quoted(x, 120) for x in (a.get("recent_actions") or [])))
     er = d.get("earnings")
     if er:
         L.append(f"Earnings: next {er.get('next') or 'n/a'} {er.get('hour') or ''}, EPS est {_f(er.get('eps_est'))}; "
@@ -226,7 +229,8 @@ def security_text(d: Dict) -> str:
         c = f.get("last_90d") or {}
         L.append(f"SEC filings (90d): {c.get('8k', 0)} 8-Ks, {c.get('insider', 0)} insider forms, "
                  f"{c.get('dilution', 0)} offering/registration filings, {c.get('ownership', 0)} 13D/G. Recent: "
-                 + "; ".join(f"{r['filed']} {r['form']} {r['what']}" + (f" ({', '.join(r['items'])})" if r["items"] else "")
+                 + "; ".join(f"{r['filed']} {safe(r['form'], 16)} {quoted(r['what'], 120)}"
+                             + (f" ({', '.join(safe(i, 60) for i in r['items'])})" if r["items"] else "")
                              for r in f.get("recent", [])))
     dv = d.get("dividend")
     if dv:
@@ -235,7 +239,8 @@ def security_text(d: Dict) -> str:
                  f"payout {_f(dv.get('payout_ratio'), '{:.0%}')}.")
     if d.get("headlines"):
         L.append("Headlines: " + " | ".join(
-            f"{time.strftime('%m-%d', time.localtime(h['t'])) if h.get('t') else ''} {h['headline']} ({h['source']})"
+            f"{time.strftime('%m-%d', time.localtime(h['t'])) if h.get('t') else ''} "
+            f"{quoted(h['headline'], 200)} ({quoted(h['source'], 40)})"
             for h in d["headlines"][:6]))
     return "\n".join(L)
 

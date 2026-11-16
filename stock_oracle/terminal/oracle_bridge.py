@@ -28,6 +28,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Dict, List, Optional
 
+from stock_oracle.utils.sanitize import quoted
 from stock_oracle.terminal import settings
 from stock_oracle.terminal import symbols as S
 from stock_oracle.terminal.cache import AsyncTTLCache
@@ -403,5 +404,7 @@ class OracleBridge:
                     lines.append("Oracle narrative: " + r["narrative"][:800])
         extra = (screen.get("text") or "").strip()
         if extra:
-            lines.append("Visible panel data:\n" + extra[:3000])
+            # Panel summaries include headlines and names: one quoted line each
+            lines.append("Visible panel data:\n" + "\n".join(
+                quoted(ln, 300) for ln in extra[:3000].splitlines() if ln.strip()))
         return "\n".join(lines)
