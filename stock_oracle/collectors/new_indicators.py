@@ -19,6 +19,50 @@ from stock_oracle.config import SEC_USER_AGENT
 logger = logging.getLogger("stock_oracle")
 
 
+INSIDER_WINDOW_DAYS = 182   # six months, the window Yahoo's insider summary uses
+
+
+def open_market_trades(txns, now=None) -> Dict:
+    """
+    Count open-market insider purchases and sales in yfinance's
+    insider_transactions table over the last INSIDER_WINDOW_DAYS.
+
+    Each row's Text starts with the kind of transaction. "Purchase at price"
+    and "Sale at price" are trades on the market. Stock awards (grants),
+    gifts, option conversions and rows with no text are not buy or sell
+    decisions, so they're counted as skipped and nothing else.
+    """
+    import pandas as pd
+    cutoff = (now or pd.Timestamp.now()) - pd.Timedelta(days=INSIDER_WINDOW_DAYS)
+    out = {"buys": 0, "sells": 0, "buy_value": 0.0, "sell_value": 0.0,
+           "buy_shares": 0, "sell_shares": 0, "skipped": 0}
+    for _, row in txns.iterrows():
+        date = pd.to_datetime(row.get("Start Date"), errors="coerce")
+        if pd.isna(date):
+            continue
+        if date.tzinfo is not None:
+            date = date.tz_convert(None)
+        if date < cutoff:
+            continue
+        text = row.get("Text")
+        text = "" if text is None or pd.isna(text) else str(text).strip().lower()
+        if text.startswith("purchase at price"):
+            kind = "buy"
+        elif text.startswith("sale at price"):
+            kind = "sell"
+        else:
+            out["skipped"] += 1
+            continue
+        shares, value = row.get("Shares"), row.get("Value")
+        out[f"{kind}s"] += 1
+        if shares is not None and not pd.isna(shares):
+            out[f"{kind}_shares"] += int(shares)
+        if value is not None and not pd.isna(value):
+            out[f"{kind}_value"] += abs(float(value))
+    out["net_shares"] = out["buy_shares"] - out["sell_shares"]
+    return out
+
+
 class FearGreedProxyCollector(BaseCollector):
     """
     Market Fear & Greed proxy using:
@@ -418,68 +462,19 @@ class InsiderRatioCollector(BaseCollector):
         except Exception:
             pass
 
-        # Primary source: yfinance insider_purchases summary table
-        # This is the same data Finviz shows — clean buy/sell/net summary
+        # Open-market trades only, from the per-filing lines. Yahoo's summary
+        # table (insider_purchases) counts stock awards and option exercises
+        # as "Purchases": MSFT, NVDA and AAPL had no open-market buys in six
+        # months yet showed 12-18 "purchases", so routine grants read as
+        # insiders buying, even alongside millions of shares sold.
         try:
             import yfinance as yf
-            stock = yf.Ticker(ticker)
-
-            # insider_purchases is a summary table with Purchases/Sales/Net rows
-            purch = getattr(stock, 'insider_purchases', None)
-            if purch is not None and not purch.empty:
-                for _, row in purch.iterrows():
-                    label = str(row.get("Insider Purchases Last 6m", "")).strip()
-                    trans = row.get("Trans")
-                    shares = row.get("Shares", 0)
-
-                    # Guard against pandas NA/NaN
-                    try:
-                        trans_int = int(trans) if trans is not None and str(trans) not in ('', '<NA>', 'nan', 'None') else 0
-                    except (ValueError, TypeError):
-                        trans_int = 0
-                    try:
-                        shares_int = int(shares) if shares is not None and str(shares) not in ('', '<NA>', 'nan', 'None') else 0
-                    except (ValueError, TypeError):
-                        shares_int = 0
-
-                    if label == "Purchases" and trans_int > 0:
-                        raw["buys"] = trans_int
-                        raw["buy_shares"] = shares_int
-                    elif label == "Sales" and trans_int > 0:
-                        raw["sells"] = trans_int
-                        raw["sell_shares"] = shares_int
-                    elif label == "Net Shares Purchased (Sold)":
-                        raw["net_shares"] = shares_int
-                    elif label == "Total Insider Shares Held":
-                        raw["total_insider_shares"] = shares_int
-
-                raw["source"] = "yfinance_insider_purchases"
-
-            # Fallback: parse insider_transactions Text field
-            if raw["buys"] == 0 and raw["sells"] == 0:
-                txns = getattr(stock, 'insider_transactions', None)
-                if txns is not None and not txns.empty:
-                    for _, row in txns.iterrows():
-                        text = str(row.get("Text", "") or "").lower()
-                        transaction = str(row.get("Transaction", "") or "").lower()
-                        combined = text + " " + transaction
-
-                        if any(w in combined for w in ["purchase", "buy", "acquisition"]):
-                            raw["buys"] += 1
-                            val = row.get("Value", 0)
-                            if val and not (isinstance(val, float) and val != val):  # NaN check
-                                raw["buy_value"] += abs(float(val))
-                        elif any(w in combined for w in ["sale at price", "sell"]):
-                            raw["sells"] += 1
-                            val = row.get("Value", 0)
-                            if val and not (isinstance(val, float) and val != val):
-                                raw["sell_value"] += abs(float(val))
-                        # Skip: Stock Award(Grant), Conversion, Gift — these aren't buy/sell signals
-
-                    raw["source"] = "yfinance_insider_transactions"
-
-        except Exception:
-            pass
+            txns = getattr(yf.Ticker(ticker), "insider_transactions", None)
+            if txns is not None and not txns.empty:
+                raw.update(open_market_trades(txns))
+                raw["source"] = "yfinance_insider_transactions"
+        except Exception as e:
+            logger.debug(f"insider_ratio: {ticker}: {e}")
 
         buys = raw["buys"]
         sells = raw["sells"]
