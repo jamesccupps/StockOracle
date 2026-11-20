@@ -3,7 +3,7 @@ SEC EDGAR Collector
 ===================
 Analyzes SEC filings for hidden signals:
 - Filing timing (Friday evening = burying bad news)
-- Insider transactions (Form 4)
+- Insider filing count (Form 4), shown but not scored
 - Language complexity changes in 10-K/10-Q
 - Unusual filing patterns
 """
@@ -59,16 +59,18 @@ class SECEdgarCollector(BaseCollector):
         insider_signal = self._analyze_insider_trades(cik)
         filing_language = self._analyze_filing_language(cik)
 
-        # Combine signals
+        # Combine signals. The Form 4 count isn't scored: grants, option
+        # exercises and planned sales all file Form 4s, so every large company
+        # passed the "more than 15" mark and got -0.3 at half the weight.
+        # Insider buying and selling is scored from the trades themselves by
+        # insider_ratio.
         signal = (
-            filing_timing["signal"] * 0.3 +
-            insider_signal["signal"] * 0.5 +
-            filing_language["signal"] * 0.2
+            filing_timing["signal"] * 0.6 +
+            filing_language["signal"] * 0.4
         )
 
         confidence = max(
             filing_timing["confidence"],
-            insider_signal["confidence"],
             filing_language["confidence"],
         )
 
@@ -85,7 +87,7 @@ class SECEdgarCollector(BaseCollector):
             },
             details=(
                 f"Timing={filing_timing['signal']:+.2f} | "
-                f"Insiders={insider_signal['signal']:+.2f} | "
+                f"Form 4s={insider_signal.get('form4_count', '?')} | "
                 f"Language={filing_language['signal']:+.2f}"
             ),
         )
@@ -160,8 +162,9 @@ class SECEdgarCollector(BaseCollector):
 
     def _analyze_insider_trades(self, cik: str) -> Dict:
         """
-        Analyze Form 4 (insider trades). Net buying = bullish.
-        Cluster selling = very bearish.
+        Count Form 4 filings (insider transactions) in the last 90 days, for
+        display. The count says how busy insiders are, not which way: awards
+        and exercises file Form 4s too, so it isn't scored.
         """
         url = f"{self.SEC_BASE}/search-index"
         params = {
@@ -201,22 +204,10 @@ class SECEdgarCollector(BaseCollector):
                 if f in ("4", "4/A") and d >= cutoff
             )
 
-            # Many Form 4s in a cluster = something is happening
-            # Without parsing the XML, we use count as a proxy
-            # High Form 4 count near earnings = normal
-            # High Form 4 count outside earnings = suspicious selling
-            if recent_form4s > 15:
-                signal = -0.3  # Lots of insider activity — often selling
-            elif recent_form4s > 8:
-                signal = -0.1
-            elif recent_form4s < 3:
-                signal = 0.1  # Quiet = insiders holding
-            else:
-                signal = 0.0
-
             return {
-                "signal": signal,
-                "confidence": 0.4,
+                "signal": 0.0,
+                "confidence": 0.0,
+                "form4_count": recent_form4s,
                 "detail": f"{recent_form4s} Form 4s in 90 days",
             }
         except Exception as e:
