@@ -22,7 +22,7 @@ import io
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError as FuturesTimeout
 
 # Setup logging — force UTF-8 on Windows to avoid cp1252 crashes
 _stdout_handler = logging.StreamHandler(
@@ -109,6 +109,10 @@ class StockOracle:
     The main oracle. Runs all collectors, combines signals,
     and produces ML-enhanced predictions.
     """
+
+    # Seconds to wait for one ticker's collectors; any still running are left
+    # out of that ticker's result. Allows for a cold Ollama model load.
+    COLLECT_TIMEOUT = 60
 
     def __init__(self, use_ml: bool = True, parallel: bool = True):
         self.use_ml = use_ml
@@ -471,20 +475,33 @@ class StockOracle:
                                  if c.name not in self.SLOW_COLLECTORS]
 
         if self.parallel:
-            with ThreadPoolExecutor(max_workers=8) as executor:
-                futures = {
-                    executor.submit(c._safe_collect, ticker): c.name
-                    for c in active_collectors
-                }
-                for future in as_completed(futures):
+            # as_completed() needs the deadline: it waits for every future,
+            # and result() on a finished one never times out, so one collector
+            # that never returned held up the whole scan. No `with` block
+            # either: its exit waits for the stuck thread too.
+            executor = ThreadPoolExecutor(max_workers=8)
+            futures = {
+                executor.submit(c._safe_collect, ticker): c.name
+                for c in active_collectors
+            }
+            try:
+                for future in as_completed(futures, timeout=self.COLLECT_TIMEOUT):
                     name = futures[future]
                     try:
-                        result = future.result(timeout=30)
+                        result = future.result()
                         signals.append(result)
                         if result.confidence > 0:
                             logger.info(f"  {result}")
                     except Exception as e:
-                        logger.error(f"  {name} timed out: {e}")
+                        logger.error(f"  {name} failed: {e}")
+            except FuturesTimeout:
+                late = sorted(name for f, name in futures.items() if not f.done())
+                logger.warning(f"  {ticker}: skipped {', '.join(late)}: no answer "
+                               f"within {self.COLLECT_TIMEOUT}s")
+            finally:
+                # Threads can't be stopped; a stuck one finishes (or times out
+                # on its own request) in the background
+                executor.shutdown(wait=False, cancel_futures=True)
         else:
             for collector in self.collectors:
                 result = collector._safe_collect(ticker)
