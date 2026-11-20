@@ -199,7 +199,7 @@ StockOracle/
 │       └── stock_oracle.log       # App log (rotated at 5 MB, 3 kept)
 ├── tests/                         # pytest suite
 ├── docs/                          # README images
-└── .github/workflows/tests.yml    # CI: Windows, Python 3.11-3.13
+└── .github/workflows/tests.yml    # CI: Windows, Python 3.11-3.14
 ```
 
 ## Watchlist
@@ -213,7 +213,7 @@ pip install -r stock_oracle/requirements.txt pytest
 python -m pytest -q
 ```
 
-GitHub Actions runs the suite on Windows with Python 3.11, 3.12 and 3.13 (`.github/workflows/tests.yml`).
+GitHub Actions runs the suite on Windows with Python 3.11 through 3.14 (`.github/workflows/tests.yml`).
 
 ## Disclaimer
 

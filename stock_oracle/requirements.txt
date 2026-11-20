@@ -1,6 +1,6 @@
 # Stock Oracle — Dependencies
 # Upper bounds stop the next major release of a dependency from arriving
-# untested. CI (.github/workflows/tests.yml) runs the suite on 3.11-3.13
+# untested. CI (.github/workflows/tests.yml) runs the suite on 3.11-3.14
 # and logs the resolved versions (pip freeze) for exact pinning.
 # Core
 requests>=2.31.0,<3
