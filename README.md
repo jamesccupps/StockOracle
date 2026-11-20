@@ -126,6 +126,13 @@ Desktop app:
 ### Signal Collection
 Each scan pulls data from 39 collectors spanning technical indicators (RSI, MACD, Bollinger Bands), fundamental analysis (P/E, margins), news sentiment, social media, SEC filings, analyst ratings, and alternative data sources. Signals are combined using tiered weighting with intelligence adjustments.
 
+To see which collectors produce a signal on your machine with your keys, run the collector self-test. It calls every source live with an empty, throwaway cache and lists each collector as LIVE, IDLE (no key, no data, or a source that stopped answering) or ERROR:
+
+```bash
+python -m stock_oracle.selftest              # AAPL, MSFT, SPY
+python -m stock_oracle.selftest NVDA LUNR    # your own tickers
+```
+
 ### Signal Intelligence
 The system learns which collectors actually produce changing signals vs static noise. Collectors that return the same value every scan (like cached analyst ratings) get suppressed. Only dynamic, real-time signals drive conviction calls.
 
@@ -158,6 +165,7 @@ StockOracle/
 │   ├── __main__.py                # Entry point
 │   ├── config.py                  # Configuration & signal weights
 │   ├── oracle.py                  # Main orchestrator
+│   ├── selftest.py                # Collector self-test (python -m stock_oracle.selftest)
 │   ├── gui.py                     # Desktop GUI (tkinter)
 │   ├── signal_intelligence.py     # Stale signal detection & adaptive thresholds
 │   ├── market_regime.py           # Broad market selloff/rally detection
