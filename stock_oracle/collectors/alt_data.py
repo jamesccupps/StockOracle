@@ -619,67 +619,83 @@ class EarningsCallNLPCollector(BaseCollector):
     POSITIVE = {"growth", "exceeded", "beat", "raised", "upgrade", "expansion",
                 "profitable", "accelerating", "outperformed", "innovation", "demand"}
 
+    # One ticker -> CIK map per session (the file is ~1 MB and changes rarely)
+    _cik_map: Dict[str, str] = {}
+    _cik_map_at = 0.0
+    FILING_WINDOW_DAYS = 90
+
+    def _cik(self, ticker: str, headers: Dict) -> Optional[str]:
+        import time
+        cls = EarningsCallNLPCollector
+        if not cls._cik_map or time.time() - cls._cik_map_at > 86400:
+            resp = self._request("https://www.sec.gov/files/company_tickers.json", headers=headers)
+            if resp is None:
+                return None
+            cls._cik_map = {str(v["ticker"]).upper(): str(v["cik_str"])
+                            for v in resp.json().values()}
+            cls._cik_map_at = time.time()
+        t = ticker.upper()
+        return cls._cik_map.get(t) or cls._cik_map.get(t.replace("-", "."))
+
     def _fetch_latest_8k(self, ticker: str) -> Optional[str]:
-        """Fetch the latest 8-K filing text from SEC EDGAR."""
+        """
+        Text of the company's latest 8-K from the last FILING_WINDOW_DAYS,
+        preferring an earnings release (item 2.02), and within the filing its
+        press-release exhibit (EX-99) over the cover page.
+
+        Uses EDGAR's submissions API and the filing's index page. Earlier
+        versions searched EDGAR full-text for the ticker string (which matches
+        any company's filing that mentions it, and read a file_url field the
+        results don't have), then the browse-edgar feed with count=3 (EDGAR
+        accepts only 10-100 and answers 400), so no filing was ever found.
+        """
         import re as regex
         from stock_oracle.config import SEC_USER_AGENT
         sec_headers = {"User-Agent": SEC_USER_AGENT}
 
-        # Step 1: Use EFTS full-text search (newer, more reliable)
         try:
-            start = (datetime.now() - timedelta(days=90)).strftime("%Y-%m-%d")
-            resp = self._request(
-                "https://efts.sec.gov/LATEST/search-index",
-                params={"q": f'"{ticker}"', "forms": "8-K",
-                        "dateRange": "custom", "startdt": start},
-                headers=sec_headers)
-            if resp and resp.status_code == 200:
-                data = resp.json()
-                hits = data.get("hits", {}).get("hits", [])
-                if hits:
-                    file_url = hits[0].get("_source", {}).get("file_url", "")
-                    if file_url:
-                        doc_resp = self._request(
-                            f"https://www.sec.gov{file_url}", headers=sec_headers)
-                        if doc_resp and doc_resp.status_code == 200:
-                            text = regex.sub(r'<[^>]+>', ' ', doc_resp.text)
-                            text = regex.sub(r'\s+', ' ', text).strip()
-                            if len(text) > 500:
-                                return text[:10000]
-        except Exception:
-            pass
+            cik = self._cik(ticker, sec_headers)
+            if not cik:
+                return None
+            resp = self._request(f"https://data.sec.gov/submissions/CIK{int(cik):010d}.json",
+                                 headers=sec_headers)
+            if resp is None:
+                return None
+            recent = resp.json().get("filings", {}).get("recent", {})
+            cutoff = (datetime.now() - timedelta(days=self.FILING_WINDOW_DAYS)).strftime("%Y-%m-%d")
+            candidates = [
+                (recent["accessionNumber"][k], recent.get("items", [""] * (k + 1))[k] or "",
+                 recent.get("primaryDocument", [""] * (k + 1))[k] or "")
+                for k, (form, filed) in enumerate(zip(recent.get("form", []),
+                                                      recent.get("filingDate", [])))
+                if form == "8-K" and filed >= cutoff
+            ]
+            if not candidates:
+                return None
+            # Newest first, as EDGAR lists them; an earnings release wins
+            acc, _, primary = next((c for c in candidates if "2.02" in c[1]), candidates[0])
 
-        # Step 2: Fallback — EDGAR company search Atom feed
-        try:
-            resp = self._request(
-                "https://www.sec.gov/cgi-bin/browse-edgar",
-                params={"action": "getcompany", "company": ticker,
-                        "CIK": ticker, "type": "8-K", "dateb": "",
-                        "owner": "include", "count": "3",
-                        "output": "atom"},
-                headers=sec_headers)
-            if resp and resp.status_code == 200:
-                links = regex.findall(
-                    r'<link[^>]*href="(https://www\.sec\.gov/Archives/edgar/data/[^"]+)"',
-                    resp.text)
-                for link in links[:3]:
-                    idx_resp = self._request(link, headers=sec_headers)
-                    if idx_resp and idx_resp.status_code == 200:
-                        doc_links = regex.findall(
-                            r'href="(/Archives/edgar/data/[^"]+\.htm)"', idx_resp.text)
-                        if not doc_links:
-                            doc_links = regex.findall(
-                                r'href="(/Archives/edgar/data/[^"]+\.txt)"', idx_resp.text)
-                        for dl in doc_links[:2]:
-                            doc_resp = self._request(
-                                f"https://www.sec.gov{dl}", headers=sec_headers)
-                            if doc_resp and doc_resp.status_code == 200:
-                                text = regex.sub(r'<[^>]+>', ' ', doc_resp.text)
-                                text = regex.sub(r'\s+', ' ', text).strip()
-                                if len(text) > 500:
-                                    return text[:10000]
+            folder = f"https://www.sec.gov/Archives/edgar/data/{int(cik)}/{acc.replace('-', '')}"
+            docs = [primary] if primary else []
+            # The filing index labels each document's type; file names
+            # don't (NVIDIA's press release is q3fy27pr.htm)
+            idx = self._request(f"{folder}/{acc}-index.htm", headers=sec_headers)
+            if idx is not None:
+                exhibits = regex.findall(
+                    r'href="/Archives/edgar/data/[^"]+/([^"/]+\.html?)">[^<]*</a></td>\s*<td[^>]*>EX-99',
+                    idx.text)
+                docs = exhibits[:1] + docs
+
+            for doc in docs:
+                doc_resp = self._request(f"{folder}/{doc}", headers=sec_headers)
+                if doc_resp is not None:
+                    text = regex.sub(r'<[^>]+>', ' ', doc_resp.text)
+                    text = regex.sub(r'&[#\w]+;', ' ', text)
+                    text = regex.sub(r'\s+', ' ', text).strip()
+                    if len(text) > 500:
+                        return text[:10000]
         except Exception as e:
-            logger.debug(f"earnings_nlp: EDGAR fetch error: {e}")
+            logger.debug(f"earnings_nlp: EDGAR fetch error for {ticker}: {e}")
 
         return None
 
