@@ -503,7 +503,7 @@ class StockOracle:
                 # on its own request) in the background
                 executor.shutdown(wait=False, cancel_futures=True)
         else:
-            for collector in self.collectors:
+            for collector in active_collectors:
                 result = collector._safe_collect(ticker)
                 signals.append(result)
                 if result.confidence > 0:

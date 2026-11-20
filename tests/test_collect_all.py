@@ -44,3 +44,10 @@ def test_all_collectors_answer_within_the_deadline():
     o = _oracle([FakeCollector(f"c{i}", delay=0.05) for i in range(12)])
     names = sorted(s.collector_name for s in o._collect_all("EXMP"))
     assert names == sorted(f"c{i}" for i in range(12))
+
+
+def test_sequential_mode_honors_skip_slow():
+    slow = FakeCollector("employee_sentiment")
+    o = _oracle([FakeCollector("fast"), slow], parallel=False, skip_slow=True)
+    assert [s.collector_name for s in o._collect_all("EXMP")] == ["fast"]
+    assert slow.calls == 0
