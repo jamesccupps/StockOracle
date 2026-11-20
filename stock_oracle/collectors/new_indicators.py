@@ -80,9 +80,9 @@ class FearGreedProxyCollector(BaseCollector):
         return "fear_greed_proxy"
 
     def collect(self, ticker: str) -> SignalResult:
-        cached = self._get_cached(ticker, "fear_greed")
+        cached = self._get_cached(self.MARKET, "fear_greed")
         if cached:
-            return SignalResult.from_dict(cached)
+            return self._for_ticker(cached, ticker)
 
         try:
             import yfinance as yf
@@ -181,7 +181,7 @@ class FearGreedProxyCollector(BaseCollector):
             raw_data=raw,
             details=f"VIX={raw.get('vix', '?')} | {mood}",
         )
-        self._set_cache(result.to_dict(), ticker, "fear_greed")
+        self._set_cache(result.to_dict(), self.MARKET, "fear_greed")
         return result
 
 
@@ -246,13 +246,16 @@ class DividendVsTreasuryCollector(BaseCollector):
             )
 
         # Get 10-year Treasury yield proxy (^TNX)
-        try:
+        def ten_year():
             tnx = yf.Ticker("^TNX").history(period="5d")
             if tnx is not None and not tnx.empty:
-                treasury_yield = float(tnx["Close"].iloc[-1]) / 100  # TNX is in percent
-                raw["treasury_10y"] = round(treasury_yield * 100, 2)
-            else:
+                return float(tnx["Close"].iloc[-1]) / 100  # TNX is in percent
+            return None
+        try:
+            treasury_yield = self._market_cached("treasury_10y", ten_year)
+            if treasury_yield is None:
                 return self._neutral_signal(ticker, "Could not get Treasury yield")
+            raw["treasury_10y"] = round(treasury_yield * 100, 2)
         except Exception:
             return self._neutral_signal(ticker, "Treasury data error")
 
@@ -570,9 +573,9 @@ class MarketPulseCollector(BaseCollector):
         return "market_pulse"
 
     def collect(self, ticker: str) -> SignalResult:
-        cached = self._get_cached(ticker, "market_pulse")
+        cached = self._get_cached(self.MARKET, "market_pulse")
         if cached:
-            return SignalResult.from_dict(cached)
+            return self._for_ticker(cached, ticker)
 
         try:
             import yfinance as yf
@@ -727,5 +730,5 @@ class MarketPulseCollector(BaseCollector):
             raw_data=raw,
             details=" | ".join(detail_parts),
         )
-        self._set_cache(result.to_dict(), ticker, "market_pulse")
+        self._set_cache(result.to_dict(), self.MARKET, "market_pulse")
         return result

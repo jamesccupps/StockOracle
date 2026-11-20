@@ -180,6 +180,25 @@ class BaseCollector(ABC):
         }
         cache_file.write_text(json.dumps(data, default=str))
 
+    # Market-wide inputs (VIX, index ETFs, the 10-year yield, oil) are the
+    # same for every ticker. Cached under one key, they're fetched once per
+    # cache period for the whole watchlist instead of once per ticker.
+    MARKET = "__market__"
+
+    def _market_cached(self, key: str, fetch):
+        """fetch()'s result, shared by all tickers; a falsy result isn't cached."""
+        cached = self._get_cached(self.MARKET, key)
+        if cached is not None:
+            return cached
+        value = fetch()
+        if value:
+            self._set_cache(value, self.MARKET, key)
+        return value
+
+    def _for_ticker(self, cached: Dict, ticker: str) -> "SignalResult":
+        """A market-wide result cached for one ticker, labelled for another."""
+        return SignalResult.from_dict({**cached, "ticker": ticker})
+
     # ── Rate-limited requests ──────────────────────────────────
 
     # Host-level failure tracking (shared across all collectors)

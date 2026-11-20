@@ -776,7 +776,7 @@ class EnergyCascadeCollector(BaseCollector):
         if cached:
             return SignalResult.from_dict(cached)
 
-        energy_data = self._get_energy_prices()
+        energy_data = self._market_cached("energy_prices", self._get_energy_prices)
         if not energy_data:
             return self._neutral_signal(ticker, "No energy price data")
 
